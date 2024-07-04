@@ -30,3 +30,6 @@ COPY --from=builder /workspace/build/manager .
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
+
+LABEL org.opencontainers.image.source=https://github.com/Mellanox/maintenance-operator
+
