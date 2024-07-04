@@ -1,0 +1,11 @@
+# Adds namespace to all resources.
+namespace: maintenance-operator-system
+namePrefix: maintenance-operator-
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
+
+patches:
+- path: manager_debug_patch.yaml

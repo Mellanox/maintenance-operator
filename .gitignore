@@ -24,3 +24,6 @@ go.work.sum
 # build dirs
 build/
 bin/
+
+# IDE
+.vscode
