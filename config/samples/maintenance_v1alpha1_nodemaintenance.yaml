@@ -1,0 +1,12 @@
+apiVersion: maintenance.nvidia.com/v1alpha1
+kind: NodeMaintenance
+metadata:
+  labels:
+    app.kubernetes.io/name: nodemaintenance
+    app.kubernetes.io/instance: nodemaintenance-sample
+    app.kubernetes.io/part-of: maintenance-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: maintenance-operator
+  name: nodemaintenance-sample
+spec:
+  foo: test

@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- maintenance_v1alpha1_nodemaintenance.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

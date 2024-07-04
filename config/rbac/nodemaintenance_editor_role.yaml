@@ -1,0 +1,31 @@
+# permissions for end users to edit nodemaintenances.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: nodemaintenance-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: maintenance-operator
+    app.kubernetes.io/part-of: maintenance-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: nodemaintenance-editor-role
+rules:
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - nodemaintenances
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - nodemaintenances/status
+  verbs:
+  - get
