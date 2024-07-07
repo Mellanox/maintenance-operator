@@ -18,36 +18,53 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// OperatorLogLevel is the operator log level. one of: ["debug", "info", "error"]
+// +kubebuilder:validation:Enum=debug;info;error
+type OperatorLogLevel string
 
 // MaintenanceOperatorConfigSpec defines the desired state of MaintenanceOperatorConfig
 type MaintenanceOperatorConfigSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// MaxParallelOperations indicates the maximal number nodes that can undergo maintenance
+	// at a given time. 0 means no limit
+	// value can be an absolute number (ex: 5) or a percentage of total nodes in the cluster (ex: 10%).
+	// absolute number is calculated from percentage by rounding up.
+	// defaults to 1. The actual number of nodes that can undergo maintenance may be lower depending
+	// on the value of MaintenanceOperatorConfigSpec.MaxUnavailable.
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:XIntOrString
+	MaxParallelOperations *intstr.IntOrString `json:"maxParallelOperations,omitempty"`
 
-	// Foo is an example field of MaintenanceOperatorConfig. Edit maintenanceoperatorconfig_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
-}
+	// MaxUnavailable is the maximum number of nodes that can become unavailable in the cluster.
+	// value can be an absolute number (ex: 5) or a percentage of total nodes in the cluster (ex: 10%).
+	// absolute number is calculated from percentage by rounding up.
+	// by default, unset.
+	// new nodes will not be processed if the number of unavailable node will exceed this value
+	// +kubebuilder:validation:XIntOrString
+	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
 
-// MaintenanceOperatorConfigStatus defines the observed state of MaintenanceOperatorConfig
-type MaintenanceOperatorConfigStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// LogLevel is the operator logging level
+	// +kubebuilder:default="info"
+	LogLevel OperatorLogLevel `json:"logLevel,omitempty"`
+
+	// MaxNodeMaintenanceTimeSeconds is the time from when a NodeMaintenance is marked as ready (phase: Ready)
+	// until the NodeMaintenance is considered stale and removed by the operator.
+	// should be less than idle time for any autoscaler that is running.
+	// default to 30m (1600 seconds)
+	// +kubebuilder:default=1600
+	MaxNodeMaintenanceTimeSeconds uint32 `json:"maxNodeMaintenanceTimeSeconds,omitempty"`
 }
 
 //+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
 
 // MaintenanceOperatorConfig is the Schema for the maintenanceoperatorconfigs API
 type MaintenanceOperatorConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MaintenanceOperatorConfigSpec   `json:"spec,omitempty"`
-	Status MaintenanceOperatorConfigStatus `json:"status,omitempty"`
+	Spec MaintenanceOperatorConfigSpec `json:"spec,omitempty"`
 }
 
 //+kubebuilder:object:root=true

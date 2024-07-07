@@ -9,4 +9,23 @@ metadata:
     app.kubernetes.io/created-by: maintenance-operator
   name: maintenanceoperatorconfig-sample
 spec:
-  # TODO(user): Add fields here
+spec:
+  # maxParallelOperations indicates how many nodes can be processed in parallel, 0 means no limit
+  # value can be an absolute number (ex: 5) or a percentage of total nodes in the cluster (ex: 10%).
+  # absolute number is calculated from percentage by rounding up.
+  # default: 1
+  maxParallelOperations: 1
+  # maxUnavailable is the maximum number of nodes that can be unavailable in the cluster.
+  # value can be an absolute number (ex: 5) or a percentage of total nodes in the cluster (ex: 10%).
+  # absolute number is calculated from percentage by rounding up.
+  # by default, unset.
+  # new nodes will not be processed if the number of unavailable node will exceed this value
+  maxUnavailable: 30%
+  # operator log level
+  logLevel: info
+  # maxNodeMaintenanceTimeSeconds the time from when a NodeMaintenance is marked as ready (phase: Ready)
+  # to when the NodeMaintenance considered stale and is removed by the operator.
+  # should be less than idle time for any autoscaler that is running.
+  # default to 30m (1600s)
+  maxNodeMaintenanceTimeSeconds: 1600
+
