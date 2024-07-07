@@ -81,6 +81,7 @@ TARGETOS ?= $(shell go env GOOS)
 TARGETARCH ?= $(shell go env GOARCH)
 GO_BUILD_OPTS ?= CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH)
 GO_LDFLAGS ?= $(VERSION_LDFLAGS)
+GO_GCFLAGS ?=
 
 # PKGs to test
 PKGS = $$(go list ./... | grep -v /e2e | grep -v ".*/mocks")
@@ -162,7 +163,7 @@ generate-mocks: mockery ## generate mock objects
 
 .PHONY: build
 build: $(BUILDDIR) ## Build manager binary.
-	$(GO_BUILD_OPTS) go build -ldflags $(GO_LDFLAGS) -o $(BUILDDIR)/manager cmd/maintenance-manager/main.go
+	$(GO_BUILD_OPTS) go build -ldflags $(GO_LDFLAGS) -gcflags="$(GO_GCFLAGS)" -o $(BUILDDIR)/manager cmd/maintenance-manager/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
@@ -340,3 +341,62 @@ else
 OPM = $(shell which opm)
 endif
 endif
+
+SKAFFOLD_VER := v2.12.0
+SKAFFOLD := $(abspath $(LOCALBIN)/skaffold-$(SKAFFOLD_VER))
+.PHONY: skaffold
+skaffold: $(SKAFFOLD) ## Download skaffold locally if necessary.
+$(SKAFFOLD): | $(LOCALBIN)
+	@{ \
+		set -e;\
+		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+		curl -fsSL https://storage.googleapis.com/skaffold/releases/$(SKAFFOLD_VER)/skaffold-$${OS}-$${ARCH} -o $(SKAFFOLD); \
+		chmod +x $(SKAFFOLD);\
+	}
+
+# minikube is used to set-up a local kubernetes cluster for dev work.
+MINIKUBE_VER := v1.33.1
+MINIKUBE := $(abspath $(LOCALBIN)/minikube-$(MINIKUBE_VER))
+.PHONY: minikube
+minikube: $(MINIKUBE) ## Download minikube locally if necessary.
+$(MINIKUBE): | $(LOCALBIN)
+	@{ \
+		set -e;\
+		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+		curl -fsSL https://storage.googleapis.com/minikube/releases/$(MINIKUBE_VER)/minikube-$${OS}-$${ARCH} -o $(MINIKUBE); \
+		chmod +x $(MINIKUBE);\
+	}
+
+##@ Dev
+
+TEST_CLUSTER_NAME = mn-op
+
+# run $(MINIKUBE) kubectl -p $(TEST_CLUSTER_NAME) -- port-forward --namespace kube-system svc/registry 5000:80
+# to expose in-cluster registry service to the host.
+SKAFFOLD_REGISTRY ?= localhost:5000
+
+.PHONY: dev-env
+dev-env: $(MINIKUBE) ## Create minikube cluster for dev and tests
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) $(CURDIR)/hack/scripts/setup_minikube.sh
+
+.PHONY: dev-env
+dev-env-multinode: $(MINIKUBE) ## Create minikube cluster for dev and tests
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) NUM_NODES=4 USE_MINIKUBE_DOCKER=false $(CURDIR)/hack/scripts/setup_minikube.sh
+
+.PHONY: clean-dev-env
+clean-dev-env: $(MINIKUBE) ## Teardown minikube cluster for dev and tests
+	$(MINIKUBE) delete -p $(TEST_CLUSTER_NAME)
+
+.PHONY: dev-operator
+dev-operator: $(MINIKUBE) $(SKAFFOLD) ## Deploy maintenance operator controller to dev cluster using skaffold
+	{\
+		eval $$($(MINIKUBE) -p $(TEST_CLUSTER_NAME) docker-env); \
+		$(SKAFFOLD) dev -p operator --default-repo=$(SKAFFOLD_REGISTRY) --detect-minikube=false --cleanup=false --trigger=manual; \
+	}
+
+.PHONY: dev-operator-debug
+dev-operator-debug: $(MINIKUBE) $(SKAFFOLD) ## Deploy maintenance operator controller to dev cluster using skaffold with remote debug
+	{\
+		eval $$($(MINIKUBE) -p $(TEST_CLUSTER_NAME) docker-env); \
+		$(SKAFFOLD) debug -p operator --default-repo=$(SKAFFOLD_REGISTRY) --detect-minikube=false --cleanup=false; \
+	}

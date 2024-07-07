@@ -1,0 +1,31 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: maintenance-operator
+
+profiles:
+  - name: operator
+    build:
+      local:
+        useBuildkit: true
+      artifacts:
+        - image: nvidia.com/maintenance-operator
+          runtimeType: go
+          docker:
+            dockerfile: Dockerfile
+            buildArgs:
+              # Used for debugging. Disable inlining and optimizations in the go compiler. Passed to go build using `-gcflags`
+              GCFLAGS: "all=-N -l"
+    manifests:
+      ## Deploy the manager.
+      kustomize:
+        paths:
+          - config/debug
+
+    portForward:
+      - resourceType: deployment
+        resourceName: maintenance-operator-controller-manager
+        namespace: maintenance-operator-system
+        port: 56268
+        localPort: 8082
+        address: 0.0.0.0
