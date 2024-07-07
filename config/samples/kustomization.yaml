@@ -1,4 +1,5 @@
 ## Append samples of your project ##
 resources:
 - maintenance_v1alpha1_nodemaintenance.yaml
+- maintenance_v1alpha1_maintenanceoperatorconfig.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
