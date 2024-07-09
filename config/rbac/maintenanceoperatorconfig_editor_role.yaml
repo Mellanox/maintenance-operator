@@ -1,0 +1,31 @@
+# permissions for end users to edit maintenanceoperatorconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: maintenanceoperatorconfig-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: maintenance-operator
+    app.kubernetes.io/part-of: maintenance-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: maintenanceoperatorconfig-editor-role
+rules:
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - maintenanceoperatorconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - maintenanceoperatorconfigs/status
+  verbs:
+  - get

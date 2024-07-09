@@ -9,4 +9,44 @@ metadata:
     app.kubernetes.io/created-by: maintenance-operator
   name: nodemaintenance-sample
 spec:
-  foo: test
+  # requestorID MUST follow domain name notation format (https://tools.ietf.org/html/rfc1035#section-2.3.1)
+  # It MUST be 63 characters or less, beginning and ending with an alphanumeric
+  # character ([a-z0-9A-Z]) with dashes (-), dots (.), and alphanumerics between.
+  # caller SHOULD NOT create multiple objects with same requestorID and nodeName.
+  # This field identifies the requestor of the operation.
+  # scheduler will prefer to schedule NodeMaintenance objs with same requestorID
+  requestorID: some-cluster-component.vendor.com
+  # the name of the node that maintenance operation will be performed on
+  # creation fails if node obj does not exist (webhook)
+  nodeName: worker-node-01
+  # if set, mark node as unschedulable during maintenance operation
+  cordon: true
+  # waitForPodCompletion specifies pods via selector to wait for completion before performing drain operation
+  # if not provided, will not wait for pods to complete
+  waitForPodCompletion:
+    # podSelector specifies a label selector for the pods to wait for completion
+    # For more details on label selectors, see:
+    # https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+    podSelector: "app=rdma-workload"
+    # timeoutSeconds specifies the length of time in seconds to wait before giving up on pod termination, zero means infinite
+    timeoutSeconds: 0
+  # drainSpec specifies how a node will be drained
+  # if not provided, no draining will be performed.
+  drainSpec:
+    # use force draining
+    force: true
+    # podSelector specifies a label selector to filter pods on the node that need to be drained
+    # For more details on label selectors, see:
+    # https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors
+    podSelector: "app=rdma-workload"
+    # timeoutSecond specifies the length of time in seconds to wait before giving up drain, zero means infinite
+    timeoutSeconds: 0
+    # deleteEmptyDir indicates if should continue even if there are pods using emptyDir
+    # (local data that will be deleted when the node is drained)
+    deleteEmptyDir: true
+    # podEvictionFilters specifies additional filters to be used for evicting pods during drain
+    # logical OR is performed between filter entires. logical AND is performed within different filters
+    # in a filter entry. (note: ATM only one filter is defined)
+    podEvictionFilters:
+    - byResourceNameRegex: nvidia.com/gpu-*
+    - byResourceNameRegex: nvidia.com/rdma*

@@ -7,6 +7,32 @@ rules:
 - apiGroups:
   - maintenance.nvidia.com
   resources:
+  - maintenanceoperatorconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - maintenanceoperatorconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
+  - maintenanceoperatorconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - maintenance.nvidia.com
+  resources:
   - nodemaintenances
   verbs:
   - create
