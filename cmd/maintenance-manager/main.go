@@ -37,6 +37,7 @@ import (
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/controller"
+	"github.com/Mellanox/maintenance-operator/internal/scheduler"
 	"github.com/Mellanox/maintenance-operator/internal/version"
 	//+kubebuilder:scaffold:imports
 )
@@ -53,6 +54,7 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
+//nolint:funlen
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
@@ -148,9 +150,14 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "MaintenanceOperatorConfig")
 		os.Exit(1)
 	}
+	nmSchedulerReconcilerLog := ctrl.Log.WithName("NodeMaintenanceScheduler")
 	if err = (&controller.NodeMaintenanceSchedulerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		MaxUnavailable:        nil,
+		MaxParallelOperations: nil,
+		Log:                   nmSchedulerReconcilerLog,
+		Sched:                 scheduler.NewDefaultScheduler(nmSchedulerReconcilerLog.WithName("DefaultScheduler")),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenanceScheduler")
 		os.Exit(1)
