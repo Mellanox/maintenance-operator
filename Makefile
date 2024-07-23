@@ -84,7 +84,7 @@ GO_LDFLAGS ?= $(VERSION_LDFLAGS)
 GO_GCFLAGS ?=
 
 # PKGs to test
-PKGS = $$(go list ./... | grep -v /e2e | grep -v ".*/mocks")
+PKGS = $$(go list ./... | grep -v "/test*" | grep -v ".*/mocks")
 
 # Coverage
 COVER_MODE = atomic
@@ -131,7 +131,7 @@ test: unit-test lint
 
 .PHONY: unit-test
 unit-test: envtest ## Run unit tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -covermode=$(COVERAGE_MODE) -coverprofile=$(COVER_PROFILE) $(PKGS)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -cover -covermode=$(COVER_MODE) -coverprofile=$(COVER_PROFILE) $(PKGS)
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
