@@ -18,11 +18,19 @@ package controller
 
 import (
 	"context"
+	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
+	"github.com/Mellanox/maintenance-operator/internal/scheduler"
+	"github.com/Mellanox/maintenance-operator/internal/utils"
 )
 
 const (
@@ -40,30 +51,248 @@ const (
 	schedulerSyncTime      = 10 * time.Second
 )
 
+var schedulerResyncResult = ctrl.Result{RequeueAfter: schedulerSyncTime}
+
 // NodeMaintenanceSchedulerReconciler reconciles a NodeMaintenance object
 type NodeMaintenanceSchedulerReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	MaxUnavailable        *intstr.IntOrString
+	MaxParallelOperations *intstr.IntOrString
+
+	Log   logr.Logger
+	Sched scheduler.Scheduler
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the NodeMaintenance object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	reqLog := log.FromContext(ctx)
-	reqLog.Info("got request", "name", req.NamespacedName)
+	r.Log.Info("run periodic scheduler loop")
+
+	// Check if we can schedule new NodeMaintenance requests, determine how many maintenance slots we have
+	nl := &corev1.NodeList{}
+	err := r.List(ctx, nl)
+	if err != nil {
+		r.Log.Error(err, "failed to list Nodes")
+		return ctrl.Result{}, err
+	}
+	nodes := utils.ToPointerSlice(nl.Items)
+
+	nml := &maintenancev1.NodeMaintenanceList{}
+	err = r.List(ctx, nml)
+	if err != nil {
+		r.Log.Error(err, "failed to list NodeMaintenance")
+		return ctrl.Result{}, err
+	}
+	nms := utils.ToPointerSlice(nml.Items)
+
+	schedCtx, err := r.preSchedule(nodes, nms)
+	if err != nil {
+		r.Log.Error(err, "failed preSchedule")
+		return ctrl.Result{}, err
+	}
+
+	if schedCtx.AvailableSlots == 0 {
+		r.Log.Info("no slots available for maintenance scheduling")
+		return schedulerResyncResult, nil
+	}
+
+	if len(schedCtx.CandidateNodes) == 0 {
+		r.Log.Info("no candidate nodes available for maintenance scheduling")
+		return schedulerResyncResult, nil
+	}
+
+	if len(schedCtx.CandidateMaintenance) == 0 {
+		r.Log.Info("no candidate NodeMaintenance requests")
+		return schedulerResyncResult, nil
+	}
+
+	// Construct ClusterState
+	clusterState := scheduler.NewClusterState(nodes, nms)
+
+	// invoke Scheduler to nominate NodeMaintenance requests for maintenance
+	toSchedule := r.Sched.Schedule(clusterState, schedCtx)
+
+	// set NodeMaintenance Ready Condition Reason to Scheduled
+	wg := sync.WaitGroup{}
+	for _, nm := range toSchedule {
+		nm := nm
+		changed := k8sutils.SetReadyConditionReason(nm, maintenancev1.ConditionReasonScheduled)
+		if changed {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// update status
+				// TODO(adrianc): use Patch?
+				err := r.Client.Status().Update(ctx, nm)
+				if err != nil {
+					r.Log.Error(err, "failed to update condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
+
+					return
+				}
+
+				// wait for condition to be updated in cache
+				err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
+					updatedNm := &maintenancev1.NodeMaintenance{}
+					innerErr := r.Client.Get(ctx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, updatedNm)
+					if innerErr != nil {
+						if k8serrors.IsNotFound(innerErr) {
+							return true, nil
+						}
+						r.Log.Error(innerErr, "failed to get NodeMaintenance object while waiting for condition update. retrying", "name", nm.Name, "namespace", nm.Namespace)
+						return false, nil
+					}
+					if k8sutils.GetReadyConditionReason(updatedNm) == maintenancev1.ConditionReasonScheduled {
+						return true, nil
+					}
+					return false, nil
+				})
+				if err != nil {
+					// Note(adrianc): if this happens we rely on the fact that caches are updated until next reconcile call
+					r.Log.Error(err, "failed while waiting for condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
+				}
+			}()
+		}
+	}
+	// wait for all updates to finish
+	wg.Wait()
 
 	return ctrl.Result{RequeueAfter: schedulerSyncTime}, nil
+}
+
+// preSchedule performs common pre-scheduling checks if we can schedule new NodeMaintenance requests. returns preScheduleContext or error.
+func (r *NodeMaintenanceSchedulerReconciler) preSchedule(nodes []*corev1.Node, nodeMaintenances []*maintenancev1.NodeMaintenance) (*scheduler.SchedulerContext, error) {
+	nodesAsSet := sets.New[string]()
+	for _, n := range nodes {
+		nodesAsSet.Insert(n.Name)
+	}
+
+	// nodesUnderMaintenance are nodes that have NodeMaintenance request in progress and their respective node exists
+	nodesUnderMaintenance := sets.New[string]()
+	for _, nm := range nodeMaintenances {
+		if k8sutils.IsUnderMaintenance(nm) && nodesAsSet.Has(nm.Spec.NodeName) {
+			nodesUnderMaintenance.Insert(nm.Spec.NodeName)
+		}
+	}
+	// TODO(adrianc): print at debug
+	r.Log.Info("nodesUnderMaintenance", "total", nodesUnderMaintenance.UnsortedList())
+
+	// nodesPendingMaintenance are nodes that have one(or more) NodeMaintenance request in Pending state and their respective node exists
+	nodesPendingMaintenance := sets.New[string]()
+	for _, nm := range nodeMaintenances {
+		if k8sutils.GetReadyConditionReason(nm) == maintenancev1.ConditionReasonPending &&
+			nodesAsSet.Has(nm.Spec.NodeName) {
+			nodesPendingMaintenance.Insert(nm.Spec.NodeName)
+		}
+	}
+	// TODO(adrianc): print at debug
+	r.Log.Info("nodesPendingMaintenance", "total", nodesPendingMaintenance.UnsortedList())
+
+	// nodesUnavailable are the currently unavailable nodes in the cluster
+	nodesUnavailable := sets.New(r.getCurrentUnavailableNodes(nodes)...)
+	// TODO(adrianc): print at debug
+	r.Log.Info("nodesUnavailable", "total", nodesUnavailable.UnsortedList())
+
+	// totalNodeUnavailable is the union of nodesUnavailable and nodesUnderMaintenance i.e nodes that are and will be (at some point)
+	// unavailable.
+	totalNodeUnavailable := nodesUnavailable.Union(nodesUnderMaintenance)
+	// TODO(adrianc): print at debug
+	r.Log.Info("totalNodeUnavailable", "total", totalNodeUnavailable.UnsortedList())
+
+	// TODO(adrianc): make this threadsafe once we allow updates for maxUnavailabe and maxParallelOperations via maintenanceOperatorConfig controller
+	maxUnavailable, err := r.getMaxUnavailableNodes(len(nodes))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to calculate max unavailable nodes allowed in the cluster")
+	}
+
+	maxOperations, err := r.getMaxOperations(len(nodes))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to calculate max parallel operations allowed in the cluster")
+	}
+
+	availableSlots := utils.MinInt(utils.MaxInt(0, maxOperations-len(nodesUnderMaintenance)), len(nodes))
+
+	canBecomeUnavailable := availableSlots
+	if maxUnavailable >= 0 {
+		canBecomeUnavailable = utils.MaxInt(0, maxUnavailable-len(totalNodeUnavailable))
+	}
+
+	// we cannot schedule New NodeMaintenance on nodes that currently undergo maintenance candidateNodes holds nodes that have pending
+	// NodeMaintenance request which are not currently undergoing maintenance
+	candidateNodes := nodesPendingMaintenance.Difference(nodesUnderMaintenance)
+
+	var candidateMaintenance []*maintenancev1.NodeMaintenance
+	if len(candidateNodes) > 0 {
+		for i := range nodeMaintenances {
+			if candidateNodes.Has(nodeMaintenances[i].Spec.NodeName) {
+				candidateMaintenance = append(candidateMaintenance, nodeMaintenances[i])
+			}
+		}
+	}
+
+	r.Log.Info("stats:", "maxUnavailable", maxUnavailable)
+	r.Log.Info("stats:", "maxOperations", maxOperations)
+	r.Log.Info("stats:", "nodesPendingMaintenance", len(nodesPendingMaintenance))
+	r.Log.Info("stats:", "candidateNodes", len(candidateNodes))
+	r.Log.Info("stats:", "availableSlots", availableSlots)
+	r.Log.Info("stats:", "canBecomeUnavailable", canBecomeUnavailable)
+	r.Log.Info("stats:", "candidateMaintenance", len(candidateMaintenance))
+
+	return &scheduler.SchedulerContext{
+		AvailableSlots:       availableSlots,
+		CanBecomeUnavailable: canBecomeUnavailable,
+		CandidateNodes:       candidateNodes,
+		CandidateMaintenance: candidateMaintenance,
+	}, nil
+}
+
+// getMaxUnavailableNodes returns the absolute number of unavailable nodes allowed or -1 if no limit.
+func (r *NodeMaintenanceSchedulerReconciler) getMaxUnavailableNodes(totalNumOfNodes int) (int, error) {
+	// unset means unlimited
+	if r.MaxUnavailable == nil {
+		return -1, nil
+	}
+	maxUnavail, err := intstr.GetScaledValueFromIntOrPercent(r.MaxUnavailable, totalNumOfNodes, false)
+	if err != nil {
+		return -1, err
+	}
+
+	return maxUnavail, nil
+}
+
+// getMaxOperations returns the absolute number of operations allowed.
+func (r *NodeMaintenanceSchedulerReconciler) getMaxOperations(totalNumOfNodes int) (int, error) {
+	// unset, use defaut of 1
+	if r.MaxParallelOperations == nil {
+		return 1, nil
+	}
+	maxOper, err := intstr.GetScaledValueFromIntOrPercent(r.MaxParallelOperations, totalNumOfNodes, true)
+	if err != nil {
+		return -1, err
+	}
+
+	return maxOper, nil
+}
+
+// getCurrentUnavailableNodes returns the current unavailable node names
+func (r *NodeMaintenanceSchedulerReconciler) getCurrentUnavailableNodes(nl []*corev1.Node) []string {
+	var unavailableNodes []string
+	for _, node := range nl {
+		// check if the node is cordoned or is not ready
+		if k8sutils.IsNodeUnschedulable(node) || !k8sutils.IsNodeReady(node) {
+			unavailableNodes = append(unavailableNodes, node.Name)
+		}
+	}
+	return unavailableNodes
 }
 
 // SetupWithManager sets up the controller with the Manager.
