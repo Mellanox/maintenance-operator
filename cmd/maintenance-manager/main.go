@@ -31,12 +31,12 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/controller"
+	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
 	"github.com/Mellanox/maintenance-operator/internal/scheduler"
 	"github.com/Mellanox/maintenance-operator/internal/version"
 	//+kubebuilder:scaffold:imports
@@ -73,18 +73,14 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&printVersion, "version", false, "print version and exit")
 
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
+	operatorlog.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	if printVersion {
 		fmt.Printf("%s\n", version.GetVersionString())
 		os.Exit(0)
 	}
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	operatorlog.InitLog()
 
 	setupLog.Info("Maintenance Operator", "version", version.GetVersionString())
 
@@ -136,30 +132,36 @@ func main() {
 		os.Exit(1)
 	}
 
+	nmrOptions := controller.NewNodeMaintenanceReconcilerOptions()
 	if err = (&controller.NodeMaintenanceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Options: nmrOptions,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
 		os.Exit(1)
 	}
-	if err = (&controller.MaintenanceOperatorConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MaintenanceOperatorConfig")
-		os.Exit(1)
-	}
-	nmSchedulerReconcilerLog := ctrl.Log.WithName("NodeMaintenanceScheduler")
+
+	nmsrOptions := controller.NewNodeMaintenanceSchedulerReconcilerOptions()
+	nmsrLog := ctrl.Log.WithName("NodeMaintenanceScheduler")
 	if err = (&controller.NodeMaintenanceSchedulerReconciler{
-		Client:                mgr.GetClient(),
-		Scheme:                mgr.GetScheme(),
-		MaxUnavailable:        nil,
-		MaxParallelOperations: nil,
-		Log:                   nmSchedulerReconcilerLog,
-		Sched:                 scheduler.NewDefaultScheduler(nmSchedulerReconcilerLog.WithName("DefaultScheduler")),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Options: nmsrOptions,
+		Log:     nmsrLog,
+		Sched:   scheduler.NewDefaultScheduler(nmsrLog.WithName("DefaultScheduler")),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenanceScheduler")
+		os.Exit(1)
+	}
+
+	if err = (&controller.MaintenanceOperatorConfigReconciler{
+		Client:                          mgr.GetClient(),
+		Scheme:                          mgr.GetScheme(),
+		NodeMaintenanceReconcierOptions: nmrOptions,
+		SchedulerReconcierOptions:       nmsrOptions,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MaintenanceOperatorConfig")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
