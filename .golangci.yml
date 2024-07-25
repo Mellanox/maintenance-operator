@@ -56,7 +56,6 @@ linters:
     - errname
     - exportloopref
     - fatcontext
-    - forcetypeassert
     - funlen
     - ginkgolinter
     - goconst
