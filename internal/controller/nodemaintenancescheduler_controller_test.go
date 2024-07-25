@@ -73,10 +73,11 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 			By("create NodeMaintenanceSchedulerReconciler")
 			nmSchedulerReconcilerLog := ctrllog.Log.WithName("NodeMaintenanceScheduler")
 			reconciler = &NodeMaintenanceSchedulerReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-				Log:    nmSchedulerReconcilerLog,
-				Sched:  scheduler.NewDefaultScheduler(nmSchedulerReconcilerLog.WithName("DefaultScheduler")),
+				Client:  k8sClient,
+				Scheme:  k8sClient.Scheme(),
+				Log:     nmSchedulerReconcilerLog,
+				Sched:   scheduler.NewDefaultScheduler(nmSchedulerReconcilerLog.WithName("DefaultScheduler")),
+				Options: NewNodeMaintenanceSchedulerReconcilerOptions(),
 			}
 
 			// setup reconciler with manager
@@ -149,9 +150,8 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 				nodes = testutils.GetTestNodes("node", 5, false)
 				maintenances = nil
 				reconciler = &NodeMaintenanceSchedulerReconciler{
-					Log:                   ctrllog.Log.WithName("NodeMaintenanceScheduler"),
-					MaxUnavailable:        nil,
-					MaxParallelOperations: nil,
+					Log:     ctrllog.Log.WithName("NodeMaintenanceScheduler"),
+					Options: NewNodeMaintenanceSchedulerReconcilerOptions(),
 				}
 			})
 
@@ -175,7 +175,8 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 					testutils.GetTestNodeMaintenance("test-nm-3", "node-1", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 					testutils.GetTestNodeMaintenance("test-nm-4", "node-2", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 				}
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 3}
+				reconciler.Options.Store(nil, &intstr.IntOrString{Type: intstr.Int, IntVal: 3})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
@@ -190,7 +191,8 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 					testutils.GetTestNodeMaintenance("test-nm-1", "node-0", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 					testutils.GetTestNodeMaintenance("test-nm-2", "node-1", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 				}
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 1}
+				reconciler.Options.Store(nil, &intstr.IntOrString{Type: intstr.Int, IntVal: 1})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
@@ -206,7 +208,8 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 					testutils.GetTestNodeMaintenance("test-nm-2", "node-0", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 					testutils.GetTestNodeMaintenance("test-nm-3", "node-1", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 				}
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 3}
+				reconciler.Options.Store(nil, &intstr.IntOrString{Type: intstr.Int, IntVal: 3})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
@@ -223,8 +226,9 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 					testutils.GetTestNodeMaintenance("test-nm-3", "node-1", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 					testutils.GetTestNodeMaintenance("test-nm-4", "node-2", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 				}
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 5}
-				reconciler.MaxUnavailable = &intstr.IntOrString{Type: intstr.Int, IntVal: 3}
+				reconciler.Options.Store(&intstr.IntOrString{Type: intstr.Int, IntVal: 3},
+					&intstr.IntOrString{Type: intstr.Int, IntVal: 5})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
@@ -240,8 +244,9 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 					testutils.GetTestNodeMaintenance("test-nm-2", "node-2", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 					testutils.GetTestNodeMaintenance("test-nm-3", "node-2", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 				}
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 5}
-				reconciler.MaxUnavailable = &intstr.IntOrString{Type: intstr.String, StrVal: "50%"}
+				reconciler.Options.Store(&intstr.IntOrString{Type: intstr.String, StrVal: "50%"},
+					&intstr.IntOrString{Type: intstr.Int, IntVal: 5})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
@@ -260,8 +265,9 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 				}
 				// node-2 is unavailable because of "other" reason
 				nodes[2].Spec.Unschedulable = true
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 5}
-				reconciler.MaxUnavailable = &intstr.IntOrString{Type: intstr.Int, IntVal: 3}
+				reconciler.Options.Store(&intstr.IntOrString{Type: intstr.Int, IntVal: 3},
+					&intstr.IntOrString{Type: intstr.Int, IntVal: 5})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
@@ -279,14 +285,30 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 					testutils.GetTestNodeMaintenance("test-nm-5", "node-4", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 					testutils.GetTestNodeMaintenance("test-nm-6", "node-4", "test-operator.nvidia.com", maintenancev1.ConditionReasonPending),
 				}
-				reconciler.MaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 2}
-				reconciler.MaxUnavailable = &intstr.IntOrString{Type: intstr.Int, IntVal: 2}
+				reconciler.Options.Store(&intstr.IntOrString{Type: intstr.Int, IntVal: 2},
+					&intstr.IntOrString{Type: intstr.Int, IntVal: 2})
+				reconciler.Options.Load()
 
 				schedCtx, err := reconciler.preSchedule(nodes, maintenances)
 				Expect(err).ToNot(HaveOccurred())
 				validateSchedulerContext(schedCtx, 0, 0, sets.New("node-3", "node-4"), sets.New("test-nm-4", "test-nm-5", "test-nm-6"))
 			})
 
+		})
+
+		Context("NewNodeMaintenanceSchedulerReconcilerOptions", func() {
+			It("Works", func() {
+				options := NewNodeMaintenanceSchedulerReconcilerOptions()
+				Expect(options.MaxParallelOperations()).To(Equal(defaultmaxParallelOperations))
+				Expect(options.MaxUnavailable()).To(BeNil())
+				newVal := &intstr.IntOrString{Type: intstr.Int, IntVal: 3}
+				options.Store(newVal, newVal)
+				Expect(options.MaxParallelOperations()).To(Equal(defaultmaxParallelOperations))
+				Expect(options.MaxUnavailable()).To(BeNil())
+				options.Load()
+				Expect(options.MaxParallelOperations()).To(Equal(newVal))
+				Expect(options.MaxUnavailable()).To(Equal(newVal))
+			})
 		})
 	})
 })
