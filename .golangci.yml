@@ -24,6 +24,7 @@ issues:
     - path: "api/*"
       linters:
         - lll
+        - goimports
     - path: "internal/*"
       linters:
         - dupl
