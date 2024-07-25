@@ -29,10 +29,10 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
+	"github.com/Mellanox/maintenance-operator/internal/vars"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -50,7 +50,7 @@ func TestControllers(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	ctrllog.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	operatorlog.InitLog()
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -80,6 +80,9 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	// init operator vars
+	vars.OperatorNamespace = "default"
 
 })
 
