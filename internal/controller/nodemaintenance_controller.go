@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -77,7 +79,8 @@ func (nmro *NodeMaintenanceReconcilerOptions) MaxNodeMaintenanceTime() time.Dura
 // NodeMaintenanceReconciler reconciles a NodeMaintenance object
 type NodeMaintenanceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme        *runtime.Scheme
+	EventRecorder record.EventRecorder
 
 	Options *NodeMaintenanceReconcilerOptions
 }
@@ -85,6 +88,7 @@ type NodeMaintenanceReconciler struct {
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -140,11 +144,17 @@ func (r *NodeMaintenanceReconciler) handleUninitiaized(ctx context.Context, reqL
 		}
 	}
 
+	// emit state change event
+	r.EventRecorder.Event(
+		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonPending)
+
 	return err
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeMaintenanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.EventRecorder = mgr.GetEventRecorderFor("nodemaintenancereconciler")
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&maintenancev1.NodeMaintenance{}).
 		Complete(r)

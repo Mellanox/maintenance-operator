@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -137,6 +138,16 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 				}
 				return ""
 			}).WithTimeout(1 * time.Minute).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonScheduled))
+
+			By("ConditionChanged event with Scheduled msg is sent for NodeMaintenance")
+			Eventually(func() string {
+				el := &corev1.EventList{}
+				err := k8sClient.List(testCtx, el, client.MatchingFields{"involvedObject.uid": string(nodeMaintenanceResource.UID)})
+				if err == nil && len(el.Items) > 0 {
+					return el.Items[0].Message
+				}
+				return ""
+			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonScheduled))
 		})
 	})
 
