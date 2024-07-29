@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,10 +34,52 @@ import (
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
 )
 
+var defaultMaxNodeMaintenanceTime = 1600 * time.Second
+
+// NewNodeMaintenanceReconcilerOptions creates new *NodeMaintenanceReconcilerOptions
+func NewNodeMaintenanceReconcilerOptions() *NodeMaintenanceReconcilerOptions {
+	return &NodeMaintenanceReconcilerOptions{
+		pendingMaxNodeMaintenanceTime: defaultMaxNodeMaintenanceTime,
+		maxNodeMaintenanceTime:        defaultMaxNodeMaintenanceTime,
+	}
+}
+
+// NodeMaintenanceReconcilerOptions are options for NodeMaintenanceReconciler where values
+// are stored by external entity and read by NodeMaintenanceReconciler.
+type NodeMaintenanceReconcilerOptions struct {
+	sync.Mutex
+
+	pendingMaxNodeMaintenanceTime time.Duration
+	maxNodeMaintenanceTime        time.Duration
+}
+
+// Store maxUnavailable, maxParallelOperations options for NodeMaintenanceReconciler
+func (nmro *NodeMaintenanceReconcilerOptions) Store(maxNodeMaintenanceTime time.Duration) {
+	nmro.Lock()
+	defer nmro.Unlock()
+
+	nmro.pendingMaxNodeMaintenanceTime = maxNodeMaintenanceTime
+}
+
+// Load loads the last Stored options
+func (nmro *NodeMaintenanceReconcilerOptions) Load() {
+	nmro.Lock()
+	defer nmro.Unlock()
+
+	nmro.maxNodeMaintenanceTime = nmro.pendingMaxNodeMaintenanceTime
+}
+
+// MaxNodeMaintenanceTime returns the last loaded MaxUnavailable option
+func (nmro *NodeMaintenanceReconcilerOptions) MaxNodeMaintenanceTime() time.Duration {
+	return nmro.maxNodeMaintenanceTime
+}
+
 // NodeMaintenanceReconciler reconciles a NodeMaintenance object
 type NodeMaintenanceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	Options *NodeMaintenanceReconcilerOptions
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
@@ -51,10 +95,14 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	reqLog := log.FromContext(ctx)
 	reqLog.Info("got request", "name", req.NamespacedName)
 
+	// load any stored options
+	r.Options.Load()
+	reqLog.Info("loaded options", "maxNodeMaintenanceTime", r.Options.MaxNodeMaintenanceTime())
+
 	// get NodeMaintenance object
 	nm := &maintenancev1.NodeMaintenance{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Name}, nm); err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			reqLog.Info("NodeMaintenance object not found, nothing to do.")
 			return reconcile.Result{}, nil
 		}

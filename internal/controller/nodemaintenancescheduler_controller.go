@@ -51,18 +51,68 @@ const (
 	schedulerSyncTime      = 10 * time.Second
 )
 
+var defaultmaxParallelOperations = &intstr.IntOrString{Type: intstr.Int, IntVal: 1}
+
 var schedulerResyncResult = ctrl.Result{RequeueAfter: schedulerSyncTime}
+
+// NewNodeMaintenanceSchedulerReconcilerOptions creates new *NodeMaintenanceSchedulerReconcilerOptions
+func NewNodeMaintenanceSchedulerReconcilerOptions() *NodeMaintenanceSchedulerReconcilerOptions {
+	return &NodeMaintenanceSchedulerReconcilerOptions{
+		Mutex:                        sync.Mutex{},
+		pendingMaxUnavailable:        nil,
+		pendingMaxParallelOperations: defaultmaxParallelOperations,
+		maxUnavailable:               nil,
+		maxParallelOperations:        defaultmaxParallelOperations,
+	}
+}
+
+// NodeMaintenanceSchedulerReconcilerOptions are options for NodeMaintenanceSchedulerReconciler where values
+// are stored by external entity and read by NodeMaintenanceSchedulerReconciler.
+type NodeMaintenanceSchedulerReconcilerOptions struct {
+	sync.Mutex
+
+	pendingMaxUnavailable        *intstr.IntOrString
+	pendingMaxParallelOperations *intstr.IntOrString
+	maxUnavailable               *intstr.IntOrString
+	maxParallelOperations        *intstr.IntOrString
+}
+
+// Store maxUnavailable, maxParallelOperations options for NodeMaintenanceSchedulerReconciler
+func (nmsro *NodeMaintenanceSchedulerReconcilerOptions) Store(maxUnavailable, maxParallelOperations *intstr.IntOrString) {
+	nmsro.Lock()
+	defer nmsro.Unlock()
+
+	nmsro.pendingMaxUnavailable = maxUnavailable
+	nmsro.pendingMaxParallelOperations = maxParallelOperations
+}
+
+// Load loads the last Stored options
+func (nmsro *NodeMaintenanceSchedulerReconcilerOptions) Load() {
+	nmsro.Lock()
+	defer nmsro.Unlock()
+
+	nmsro.maxUnavailable = nmsro.pendingMaxUnavailable
+	nmsro.maxParallelOperations = nmsro.pendingMaxParallelOperations
+}
+
+// MaxUnavailable returns the last loaded MaxUnavailable option
+func (nmsro *NodeMaintenanceSchedulerReconcilerOptions) MaxUnavailable() *intstr.IntOrString {
+	return nmsro.maxUnavailable
+}
+
+// MaxParallelOperations returns the last loaded MaxParallelOperations option
+func (nmsro *NodeMaintenanceSchedulerReconcilerOptions) MaxParallelOperations() *intstr.IntOrString {
+	return nmsro.maxParallelOperations
+}
 
 // NodeMaintenanceSchedulerReconciler reconciles a NodeMaintenance object
 type NodeMaintenanceSchedulerReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	MaxUnavailable        *intstr.IntOrString
-	MaxParallelOperations *intstr.IntOrString
-
-	Log   logr.Logger
-	Sched scheduler.Scheduler
+	Options *NodeMaintenanceSchedulerReconcilerOptions
+	Log     logr.Logger
+	Sched   scheduler.Scheduler
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
@@ -77,6 +127,10 @@ type NodeMaintenanceSchedulerReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info("run periodic scheduler loop")
+	// load any stored options
+	r.Options.Load()
+	r.Log.Info("loaded options", "maxUnavailable",
+		r.Options.MaxUnavailable(), "maxParallelOperations", r.Options.MaxParallelOperations())
 
 	// Check if we can schedule new NodeMaintenance requests, determine how many maintenance slots we have
 	nl := &corev1.NodeList{}
@@ -257,11 +311,12 @@ func (r *NodeMaintenanceSchedulerReconciler) preSchedule(nodes []*corev1.Node, n
 
 // getMaxUnavailableNodes returns the absolute number of unavailable nodes allowed or -1 if no limit.
 func (r *NodeMaintenanceSchedulerReconciler) getMaxUnavailableNodes(totalNumOfNodes int) (int, error) {
+	maxUnavailable := r.Options.MaxUnavailable()
 	// unset means unlimited
-	if r.MaxUnavailable == nil {
+	if maxUnavailable == nil {
 		return -1, nil
 	}
-	maxUnavail, err := intstr.GetScaledValueFromIntOrPercent(r.MaxUnavailable, totalNumOfNodes, false)
+	maxUnavail, err := intstr.GetScaledValueFromIntOrPercent(maxUnavailable, totalNumOfNodes, false)
 	if err != nil {
 		return -1, err
 	}
@@ -271,11 +326,12 @@ func (r *NodeMaintenanceSchedulerReconciler) getMaxUnavailableNodes(totalNumOfNo
 
 // getMaxOperations returns the absolute number of operations allowed.
 func (r *NodeMaintenanceSchedulerReconciler) getMaxOperations(totalNumOfNodes int) (int, error) {
+	maxParallelOperations := r.Options.MaxParallelOperations()
 	// unset, use defaut of 1
-	if r.MaxParallelOperations == nil {
+	if maxParallelOperations == nil {
 		return 1, nil
 	}
-	maxOper, err := intstr.GetScaledValueFromIntOrPercent(r.MaxParallelOperations, totalNumOfNodes, true)
+	maxOper, err := intstr.GetScaledValueFromIntOrPercent(maxParallelOperations, totalNumOfNodes, true)
 	if err != nil {
 		return -1, err
 	}

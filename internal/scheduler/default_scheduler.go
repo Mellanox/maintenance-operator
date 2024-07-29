@@ -59,8 +59,9 @@ func (ds *defaultScheduler) Schedule(clusterState *ClusterState, schedulerCtx *S
 			types.NamespacedName{Namespace: b.Namespace, Name: b.Name}.String())
 	})
 
-	// compact entries pointing to the same Node
-	// note(adrianc) for this to work we rely on the fact that entries with same node are adjacent (assured by the sort function above)
+	// compact entries pointing to the same Node, keeping the first (highest priority) NodeMainenance from the list.
+	// this is done as we can only recommend a single NodeMaintenance per node for scheduling.
+	// NOTE(adrianc): for this to work we rely on the fact that entries with same node are adjacent (assured by the sort function above)
 	compacted := slices.CompactFunc(schedulerCtx.CandidateMaintenance, func(a *maintenancev1.NodeMaintenance, b *maintenancev1.NodeMaintenance) bool {
 		return a.Spec.NodeName == b.Spec.NodeName
 	})

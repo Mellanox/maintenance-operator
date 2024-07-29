@@ -18,19 +18,30 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
+	"github.com/Mellanox/maintenance-operator/internal/vars"
+)
+
+const (
+	defaultMaintenanceOperatorConifgName = "default"
 )
 
 // MaintenanceOperatorConfigReconciler reconciles a MaintenanceOperatorConfig object
 type MaintenanceOperatorConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	SchedulerReconcierOptions       *NodeMaintenanceSchedulerReconcilerOptions
+	NodeMaintenanceReconcierOptions *NodeMaintenanceReconcilerOptions
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=maintenanceoperatorconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -45,6 +56,33 @@ type MaintenanceOperatorConfigReconciler struct {
 func (r *MaintenanceOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLog := log.FromContext(ctx)
 	reqLog.Info("got request", "name", req.NamespacedName)
+	if req.Name != defaultMaintenanceOperatorConifgName || req.Namespace != vars.OperatorNamespace {
+		reqLog.Info("request for non default MaintenanceOperatorConfig, ignoring")
+		return ctrl.Result{}, nil
+	}
+
+	cfg := &maintenancev1.MaintenanceOperatorConfig{}
+	err := r.Client.Get(ctx, req.NamespacedName, cfg)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// handle reconcilers options
+	reqLog.Info("store scheduler reconciler options", "MaxUnavailable", cfg.Spec.MaxUnavailable,
+		"MaxParallelOperations", cfg.Spec.MaxParallelOperations)
+	r.SchedulerReconcierOptions.Store(cfg.Spec.MaxUnavailable, cfg.Spec.MaxParallelOperations)
+	reqLog.Info("store nodeMaintenance reconciler options", "MaxNodeMaintenanceTimeSeconds", cfg.Spec.MaxNodeMaintenanceTimeSeconds)
+	r.NodeMaintenanceReconcierOptions.Store(time.Second * time.Duration(cfg.Spec.MaxNodeMaintenanceTimeSeconds))
+
+	// handle log level
+	reqLog.Info("setting operator log level", "LogLevel", cfg.Spec.LogLevel)
+	err = operatorlog.SetLogLevel(string(cfg.Spec.LogLevel))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -52,6 +90,6 @@ func (r *MaintenanceOperatorConfigReconciler) Reconcile(ctx context.Context, req
 // SetupWithManager sets up the controller with the Manager.
 func (r *MaintenanceOperatorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&maintenancev1alpha1.MaintenanceOperatorConfig{}).
+		For(&maintenancev1.MaintenanceOperatorConfig{}).
 		Complete(r)
 }
