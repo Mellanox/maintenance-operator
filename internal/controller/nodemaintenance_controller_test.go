@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -114,11 +115,22 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			Expect(k8sClient.Create(testCtx, nm)).ToNot(HaveOccurred())
 			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
 
+			By("Eventually NodeMaintenance condition is set to Pending")
 			Eventually(func() string {
 				nm := &maintenancev1.NodeMaintenance{}
 				err := k8sClient.Get(testCtx, types.NamespacedName{Namespace: "default", Name: "test-nm"}, nm)
 				if err == nil {
 					return k8sutils.GetReadyConditionReason(nm)
+				}
+				return ""
+			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))
+
+			By("ConditionChanged event with Pending msg is sent for NodeMaintenance")
+			Eventually(func() string {
+				el := &corev1.EventList{}
+				err := k8sClient.List(testCtx, el, client.MatchingFields{"involvedObject.uid": string(nm.UID)})
+				if err == nil && len(el.Items) > 0 {
+					return el.Items[0].Message
 				}
 				return ""
 			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))

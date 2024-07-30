@@ -44,6 +44,11 @@ const (
 	ConditionReasonAborted string = "Aborted"
 )
 
+const (
+	// ConditionChangedEventType is an event type emitted when NodeMaintenance condition changes
+	ConditionChangedEventType = "ConditionChanged"
+)
+
 // NodeMaintenanceSpec defines the desired state of NodeMaintenance
 type NodeMaintenanceSpec struct {
 	// RequestorID MUST follow domain name notation format (https://tools.ietf.org/html/rfc1035#section-2.3.1)
