@@ -18,25 +18,41 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	"github.com/Mellanox/maintenance-operator/internal/cordon"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
+	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
+	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 )
 
-var defaultMaxNodeMaintenanceTime = 1600 * time.Second
+var (
+	defaultMaxNodeMaintenanceTime = 1600 * time.Second
+	waitPodCompletionRequeueTime  = 10 * time.Second
+)
+
+const (
+	// ReadyTimeAnnotation is annotation that contains NodeMaintenance time in tranisitioned to ready state
+	ReadyTimeAnnotation = "maintenance.nvidia.com/ready-time"
+)
 
 // NewNodeMaintenanceReconcilerOptions creates new *NodeMaintenanceReconcilerOptions
 func NewNodeMaintenanceReconcilerOptions() *NodeMaintenanceReconcilerOptions {
@@ -82,13 +98,17 @@ type NodeMaintenanceReconciler struct {
 	Scheme        *runtime.Scheme
 	EventRecorder record.EventRecorder
 
-	Options *NodeMaintenanceReconcilerOptions
+	Options                  *NodeMaintenanceReconcilerOptions
+	CordonHandler            cordon.Handler
+	WaitPodCompletionHandler podcompletion.Handler
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;update;patch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;watch;list;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -98,6 +118,7 @@ type NodeMaintenanceReconciler struct {
 func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLog := log.FromContext(ctx)
 	reqLog.Info("got request", "name", req.NamespacedName)
+	var err error
 
 	// load any stored options
 	r.Options.Load()
@@ -105,7 +126,7 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// get NodeMaintenance object
 	nm := &maintenancev1.NodeMaintenance{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Name}, nm); err != nil {
+	if err = r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Name}, nm); err != nil {
 		if k8serrors.IsNotFound(err) {
 			reqLog.Info("NodeMaintenance object not found, nothing to do.")
 			return reconcile.Result{}, nil
@@ -113,49 +134,326 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return reconcile.Result{}, err
 	}
 
-	// Handle its state according to Ready Condition
-	state := k8sutils.GetReadyConditionReason(nm)
+	// get node object
+	node := &corev1.Node{}
+	err = r.Client.Get(ctx, types.NamespacedName{Name: nm.Spec.NodeName}, node)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			reqLog.Info("node not found", "name", nm.Spec.NodeName)
+			// node not found, remove finalizer from NodeMaintenance if exists
+			err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+			if err != nil {
+				reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+			}
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, err
+	}
 
-	var err error
-	//nolint:gocritic
-	switch state {
-	case maintenancev1.ConditionReasonUninitialized:
-		err = r.handleUninitiaized(ctx, reqLog, nm)
+	// set owner reference if not set
+	if !k8sutils.HasOwnerRef(node, nm) {
+		err = k8sutils.SetOwnerRef(ctx, r.Client, node, nm)
 		if err != nil {
-			reqLog.Error(err, "failed to handle uninitialized NodeMaintenance object")
+			reqLog.Error(err, "failed to set owner reference for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
 		}
 	}
 
-	return ctrl.Result{}, err
+	// Handle its state according to Ready Condition
+	state := k8sutils.GetReadyConditionReason(nm)
+	res := ctrl.Result{}
+
+	switch state {
+	case maintenancev1.ConditionReasonUninitialized:
+		err = r.handleUninitiaizedState(ctx, reqLog, nm)
+		if err != nil {
+			reqLog.Error(err, "failed to handle uninitialized state for NodeMaintenance object")
+		}
+	case maintenancev1.ConditionReasonScheduled:
+		err = r.handleScheduledState(ctx, reqLog, nm)
+		if err != nil {
+			reqLog.Error(err, "failed to handle scheduled state for NodeMaintenance object")
+		}
+	case maintenancev1.ConditionReasonCordon:
+		err = r.handleCordonState(ctx, reqLog, nm, node)
+		if err != nil {
+			reqLog.Error(err, "failed to handle cordon state for NodeMaintenance object")
+		}
+	case maintenancev1.ConditionReasonWaitForPodCompletion:
+		res, err = r.handleWaitPodCompletionState(ctx, reqLog, nm, node)
+		if err != nil {
+			reqLog.Error(err, "failed to handle waitForPodCompletion state for NodeMaintenance object")
+		}
+	case maintenancev1.ConditionReasonDraining:
+		// TODO(adrianc): implement
+	case maintenancev1.ConditionReasonReady:
+		err = r.handleReadyState(ctx, reqLog, nm, node)
+		if err != nil {
+			reqLog.Error(err, "failed to handle Ready state for NodeMaintenance object")
+		}
+	}
+
+	return res, err
 }
 
-// handleUninitiaized handles NodeMaintenance in ConditionReasonUninitialized state
+// handleUninitiaizedState handles NodeMaintenance in ConditionReasonUninitialized state
 // it eventually sets NodeMaintenance Ready condition Reason to ConditionReasonPending
-func (r *NodeMaintenanceReconciler) handleUninitiaized(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
+func (r *NodeMaintenanceReconciler) handleUninitiaizedState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
 	reqLog.Info("Handle Uninitialized NodeMaintenance")
 
-	// set Ready condition to ConditionReasonPending and update object
-	changed := k8sutils.SetReadyConditionReason(nm, maintenancev1.ConditionReasonPending)
-	var err error
-	if changed {
-		err = r.Status().Update(ctx, nm)
-		if err != nil {
-			reqLog.Error(err, "failed to update status for NodeMaintenance object")
-		}
+	// Set Ready condition to ConditionReasonPending and update object
+	err := k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonPending)
+	if err != nil {
+		reqLog.Error(err, "failed to update status for NodeMaintenance object")
+		return err
 	}
 
 	// emit state change event
 	r.EventRecorder.Event(
 		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonPending)
 
-	return err
+	return nil
+}
+
+// handleScheduledState handles NodeMaintenance in ConditionReasonScheduled state
+// it eventually sets NodeMaintenance Ready condition Reason to ConditionReasonWaitForPodCompletion
+func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
+	reqLog.Info("Handle Scheduled NodeMaintenance")
+	// handle finalizers
+	var err error
+	if nm.GetDeletionTimestamp().IsZero() {
+		// conditionally add finalizer
+		err = k8sutils.AddFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+		if err != nil {
+			reqLog.Error(err, "failed to set finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+			return err
+		}
+	} else {
+		// object is being deleted, remove finalizer if exists and return
+		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+		if err != nil {
+			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+		}
+		return err
+	}
+
+	// TODO(adrianc): in openshift, we should pause MCP here
+
+	// Set Ready condition to ConditionReasonCordon and update object
+	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonCordon)
+	if err != nil {
+		reqLog.Error(err, "failed to update status for NodeMaintenance object")
+		return err
+	}
+
+	// emit state change event
+	r.EventRecorder.Event(
+		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonCordon)
+
+	return nil
+}
+
+func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) error {
+	reqLog.Info("Handle Cordon NodeMaintenance")
+	var err error
+
+	if !nm.GetDeletionTimestamp().IsZero() {
+		reqLog.Info("NodeMaintenance object is deleting")
+		if nm.Spec.Cordon {
+			reqLog.Info("handle uncordon of node, ", "node", node.Name)
+			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
+			if err != nil {
+				return err
+			}
+		}
+
+		// TODO(adrianc): unpause MCP in OCP when support is added.
+
+		reqLog.Info("remove maintenance finalizer for node maintenance", "namespace", nm.Namespace, "name", nm.Name)
+		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+		if err != nil {
+			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+		}
+		return err
+	}
+
+	if nm.Spec.Cordon {
+		err = r.CordonHandler.HandleCordon(ctx, reqLog, nm, node)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonWaitForPodCompletion)
+	if err != nil {
+		reqLog.Error(err, "failed to update status for NodeMaintenance object")
+		return err
+	}
+
+	r.EventRecorder.Event(
+		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonWaitForPodCompletion)
+
+	return nil
+}
+
+func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
+	reqLog.Info("Handle WaitPodCompletion NodeMaintenance")
+	// handle finalizers
+	var err error
+	var res ctrl.Result
+
+	if !nm.GetDeletionTimestamp().IsZero() {
+		// object is being deleted, handle cleanup.
+		reqLog.Info("NodeMaintenance object is deleting")
+		if nm.Spec.Cordon {
+			reqLog.Info("handle uncordon of node, ", "node", node.Name)
+			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
+			if err != nil {
+				return res, err
+			}
+		}
+
+		// TODO(adrianc): unpause MCP in OCP when support is added.
+
+		// remove finalizer if exists and return
+		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+		if err != nil {
+			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+		}
+		return res, err
+	}
+
+	if nm.Spec.WaitForPodCompletion != nil {
+		waitingForPods, err := r.WaitPodCompletionHandler.HandlePodCompletion(ctx, reqLog, nm)
+
+		if err == nil {
+			if len(waitingForPods) > 0 {
+				reqLog.Info("waiting for pods to finish", "pods", waitingForPods)
+				return ctrl.Result{Requeue: true, RequeueAfter: waitPodCompletionRequeueTime}, nil
+			}
+		} else if err != nil && !errors.Is(err, podcompletion.ErrPodCompletionTimeout) {
+			reqLog.Error(err, "failed to handle waitPodCompletion")
+			return res, err
+		}
+		// Note(adrianc): we get here if waitingForPods is zero length or timeout reached, in any case
+		// we can can progress to next step for this NodeMaintenance
+	}
+
+	// update condition and send event
+	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonReady)
+	if err != nil {
+		reqLog.Error(err, "failed to update status for NodeMaintenance object")
+		return res, err
+	}
+
+	r.EventRecorder.Event(
+		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonReady)
+
+	return res, nil
+}
+
+func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) error {
+	reqLog.Info("Handle Ready NodeMaintenance")
+	// handle finalizers
+	var err error
+
+	if !nm.GetDeletionTimestamp().IsZero() {
+		// object is being deleted, handle cleanup.
+		reqLog.Info("NodeMaintenance object is deleting")
+		if nm.Spec.Cordon {
+			reqLog.Info("handle uncordon of node, ", "node", node.Name)
+			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
+			if err != nil {
+				return err
+			}
+		}
+
+		// TODO(adrianc): unpause MCP in OCP when support is added.
+
+		// remove finalizer if exists and return
+		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+		if err != nil {
+			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+		}
+		return err
+	}
+
+	// set ready-time annotation
+	if !metav1.HasAnnotation(nm.ObjectMeta, ReadyTimeAnnotation) ||
+		nm.Annotations[ReadyTimeAnnotation] == "" {
+		metav1.SetMetaDataAnnotation(&nm.ObjectMeta, ReadyTimeAnnotation, time.Now().UTC().Format(time.RFC3339))
+		err := r.Update(ctx, nm)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *NodeMaintenanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *NodeMaintenanceReconciler) SetupWithManager(mgr ctrl.Manager, log logr.Logger) error {
 	r.EventRecorder = mgr.GetEventRecorderFor("nodemaintenancereconciler")
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&maintenancev1.NodeMaintenance{}).
+		For(&maintenancev1.NodeMaintenance{}, builder.WithPredicates(NewReadyConditionChangedPredicate(log))).
 		Complete(r)
+}
+
+// NewReadyConditionChangedPredicate creates a new ReadyConditionChangedPredicate
+func NewReadyConditionChangedPredicate(log logr.Logger) ReadyConditionChangedPredicate {
+	return ReadyConditionChangedPredicate{
+		Funcs: predicate.Funcs{},
+		log:   log,
+	}
+}
+
+// ReadyConditionChangedPredicate will trigger enqueue of Event for reconcile in the following cases:
+// 1. A change in NodeMaintenance Ready Condition
+// 2. Update to the object occurred and deletion timestamp is set
+// 3. NodeMaintenance created
+// 4. NodeMaintenance deleted
+// 5. generic event received
+type ReadyConditionChangedPredicate struct {
+	predicate.Funcs
+
+	log logr.Logger
+}
+
+// Update implements Predicate.
+func (p ReadyConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.Object]) bool {
+	if e.ObjectOld == nil {
+		p.log.Error(nil, "old object is nil in update event, ignoring event.")
+		return false
+	}
+	if e.ObjectNew == nil {
+		p.log.Error(nil, "new object is nil in update event, ignoring event.")
+		return false
+	}
+
+	oldO, ok := e.ObjectOld.(*maintenancev1.NodeMaintenance)
+	if !ok {
+		p.log.Error(nil, "failed to cast old object to NodeMaintenance in update event, ignoring event.")
+		return false
+	}
+
+	newO, ok := e.ObjectNew.(*maintenancev1.NodeMaintenance)
+	if !ok {
+		p.log.Error(nil, "failed to cast new object to NodeMaintenance in update event, ignoring event.")
+		return false
+	}
+
+	oldRCR := k8sutils.GetReadyConditionReason(oldO)
+	newRCR := k8sutils.GetReadyConditionReason(newO)
+
+	process := oldRCR != newRCR || !newO.GetDeletionTimestamp().IsZero()
+
+	p.log.V(operatorlog.DebugLevel).Info("Update event for NodeMaintenance",
+		"name", newO.Name, "namespace", newO.Namespace,
+		"condition-changed", oldRCR != newRCR, "old", oldRCR, "new", newRCR,
+		"deleting", !newO.GetDeletionTimestamp().IsZero(), "process", process)
+
+	return process
 }
