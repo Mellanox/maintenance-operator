@@ -25,6 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+const (
+	DebugLevel = int(zapcore.DebugLevel)
+)
+
 // Options stores controller-runtime (zap) log config
 var Options = &zap.Options{
 	Development: true,
