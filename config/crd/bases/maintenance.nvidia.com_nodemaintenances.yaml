@@ -245,6 +245,12 @@ spec:
                       type: string
                     type: array
                 type: object
+              waitForCompletion:
+                description: WaitForCompletion is the list of namespaced named pods
+                  that we wait to complete
+                items:
+                  type: string
+                type: array
             type: object
         type: object
     served: true
