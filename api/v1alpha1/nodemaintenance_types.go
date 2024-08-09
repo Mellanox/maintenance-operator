@@ -49,6 +49,11 @@ const (
 	ConditionChangedEventType = "ConditionChanged"
 )
 
+const (
+	// MaintenanceFinalizerName is the name of the finalizer being used by NodeMaintenance controllers
+	MaintenanceFinalizerName = "maintenance.finalizers.nvidia.com"
+)
+
 // NodeMaintenanceSpec defines the desired state of NodeMaintenance
 type NodeMaintenanceSpec struct {
 	// RequestorID MUST follow domain name notation format (https://tools.ietf.org/html/rfc1035#section-2.3.1)
@@ -144,6 +149,8 @@ type NodeMaintenanceStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchMergeKey:"type" patchStrategy:"merge" protobuf:"bytes,1,rep,name=conditions"`
 
+	// WaitForCompletion is the list of namespaced named pods that we wait to complete
+	WaitForCompletion []string `json:"waitForCompletion,omitempty"`
 	// Drain represents the drain status of the node
 	Drain *DrainStatus `json:"drain,omitempty"`
 }

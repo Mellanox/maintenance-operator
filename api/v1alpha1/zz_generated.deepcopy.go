@@ -245,6 +245,11 @@ func (in *NodeMaintenanceStatus) DeepCopyInto(out *NodeMaintenanceStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.WaitForCompletion != nil {
+		in, out := &in.WaitForCompletion, &out.WaitForCompletion
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Drain != nil {
 		in, out := &in.Drain, &out.Drain
 		*out = new(DrainStatus)

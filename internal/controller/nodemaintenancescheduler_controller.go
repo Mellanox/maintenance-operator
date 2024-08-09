@@ -183,45 +183,41 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 	wg := sync.WaitGroup{}
 	for _, nm := range toSchedule {
 		nm := nm
-		changed := k8sutils.SetReadyConditionReason(nm, maintenancev1.ConditionReasonScheduled)
-		if changed {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// update status
-				// TODO(adrianc): use Patch?
-				err := r.Client.Status().Update(ctx, nm)
-				if err != nil {
-					r.Log.Error(err, "failed to update condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// update status
+			// TODO(adrianc): use Patch?
+			err := k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonScheduled)
+			if err != nil {
+				r.Log.Error(err, "failed to update condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
+				return
+			}
 
-					return
-				}
+			// emit event
+			r.EventRecorder.Event(nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonScheduled)
 
-				// emit event
-				r.EventRecorder.Event(nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonScheduled)
-
-				// wait for condition to be updated in cache
-				err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
-					updatedNm := &maintenancev1.NodeMaintenance{}
-					innerErr := r.Client.Get(ctx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, updatedNm)
-					if innerErr != nil {
-						if k8serrors.IsNotFound(innerErr) {
-							return true, nil
-						}
-						r.Log.Error(innerErr, "failed to get NodeMaintenance object while waiting for condition update. retrying", "name", nm.Name, "namespace", nm.Namespace)
-						return false, nil
-					}
-					if k8sutils.GetReadyConditionReason(updatedNm) == maintenancev1.ConditionReasonScheduled {
+			// wait for condition to be updated in cache
+			err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
+				updatedNm := &maintenancev1.NodeMaintenance{}
+				innerErr := r.Client.Get(ctx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, updatedNm)
+				if innerErr != nil {
+					if k8serrors.IsNotFound(innerErr) {
 						return true, nil
 					}
+					r.Log.Error(innerErr, "failed to get NodeMaintenance object while waiting for condition update. retrying", "name", nm.Name, "namespace", nm.Namespace)
 					return false, nil
-				})
-				if err != nil {
-					// Note(adrianc): if this happens we rely on the fact that caches are updated until next reconcile call
-					r.Log.Error(err, "failed while waiting for condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
 				}
-			}()
-		}
+				if k8sutils.GetReadyConditionReason(updatedNm) == maintenancev1.ConditionReasonScheduled {
+					return true, nil
+				}
+				return false, nil
+			})
+			if err != nil {
+				// Note(adrianc): if this happens we rely on the fact that caches are updated until next reconcile call
+				r.Log.Error(err, "failed while waiting for condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
+			}
+		}()
 	}
 	// wait for all updates to finish
 	wg.Wait()

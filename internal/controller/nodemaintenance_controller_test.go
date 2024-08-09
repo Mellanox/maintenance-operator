@@ -24,13 +24,18 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
+	"github.com/Mellanox/maintenance-operator/internal/cordon"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
+	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/testutils"
 )
 
@@ -38,6 +43,7 @@ var _ = Describe("NodeMaintenance Controller", func() {
 	Context("Envtests", func() {
 		var nmObjectsToCleanup []*maintenancev1.NodeMaintenance
 		var nodeObjectsToCleanup []*corev1.Node
+		var podObjectsToCleanup []*corev1.Pod
 
 		var reconciler *NodeMaintenanceReconciler
 		var options *NodeMaintenanceReconcilerOptions
@@ -67,14 +73,22 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			By("create NodeMaintenanceReconciler")
 			options = NewNodeMaintenanceReconcilerOptions()
 			reconciler = &NodeMaintenanceReconciler{
-				Client:  k8sClient,
-				Scheme:  k8sClient.Scheme(),
-				Options: options,
+				Client:                   k8sClient,
+				Scheme:                   k8sClient.Scheme(),
+				Options:                  options,
+				CordonHandler:            cordon.NewCordonHandler(k8sClient, k8sInterface),
+				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(k8sClient),
 			}
 
 			// setup reconciler with manager
 			By("setup NodeMaintenanceReconciler with controller manager")
-			Expect(reconciler.SetupWithManager(mgr)).ToNot(HaveOccurred())
+			Expect(reconciler.SetupWithManager(mgr, ctrllog.Log.WithName("NodeMaintenanceReconciler"))).
+				ToNot(HaveOccurred())
+
+			// set up index fields
+			Expect(mgr.GetCache().IndexField(testCtx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
+				return []string{o.(*corev1.Pod).Spec.NodeName}
+			})).ToNot(HaveOccurred())
 
 			// start manager
 			testMgrCtx, cancel := context.WithCancel(testCtx)
@@ -99,7 +113,22 @@ var _ = Describe("NodeMaintenance Controller", func() {
 		AfterEach(func() {
 			By("Cleanup NodeMaintenance resources")
 			for _, nm := range nmObjectsToCleanup {
-				Expect(k8sClient.Delete(testCtx, nm)).To(Succeed())
+				err := k8sClient.Delete(testCtx, nm)
+				if err != nil && k8serrors.IsNotFound(err) {
+					err = nil
+				}
+				Expect(err).ToNot(HaveOccurred())
+			}
+			By("Wait for NodeMaintenance resources to be deleted")
+			for _, nm := range nmObjectsToCleanup {
+				Eventually(func() bool {
+					err := k8sClient.Get(testCtx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, nm)
+					if err != nil && k8serrors.IsNotFound(err) {
+						return true
+					}
+					return false
+
+				}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(BeTrue())
 			}
 			nmObjectsToCleanup = make([]*maintenancev1.NodeMaintenance, 0)
 
@@ -108,6 +137,17 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Expect(k8sClient.Delete(testCtx, n)).To(Succeed())
 			}
 			nodeObjectsToCleanup = make([]*corev1.Node, 0)
+
+			By("Cleanup Pod resources")
+			for _, p := range podObjectsToCleanup {
+				var grace int64
+				err := k8sClient.Delete(testCtx, p, &client.DeleteOptions{GracePeriodSeconds: &grace, Preconditions: &metav1.Preconditions{UID: &p.UID}})
+				if err != nil && k8serrors.IsNotFound(err) {
+					err = nil
+				}
+				Expect(err).ToNot(HaveOccurred())
+			}
+			podObjectsToCleanup = make([]*corev1.Pod, 0)
 		})
 
 		It("Should transition new NodeMaintenance Resource to Pending", func() {
@@ -116,24 +156,82 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
 
 			By("Eventually NodeMaintenance condition is set to Pending")
-			Eventually(func() string {
-				nm := &maintenancev1.NodeMaintenance{}
-				err := k8sClient.Get(testCtx, types.NamespacedName{Namespace: "default", Name: "test-nm"}, nm)
-				if err == nil {
-					return k8sutils.GetReadyConditionReason(nm)
-				}
-				return ""
-			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))
 
 			By("ConditionChanged event with Pending msg is sent for NodeMaintenance")
-			Eventually(func() string {
-				el := &corev1.EventList{}
-				err := k8sClient.List(testCtx, el, client.MatchingFields{"involvedObject.uid": string(nm.UID)})
-				if err == nil && len(el.Items) > 0 {
-					return el.Items[0].Message
+			Eventually(testutils.EventsForObjFn(testCtx, k8sClient, nm.UID)).WithTimeout(10 * time.Second).
+				WithPolling(1 * time.Second).Should(Equal([]string{maintenancev1.ConditionReasonPending}))
+		})
+
+		It("Full lifecycle of NodeMaintenance", func() {
+			By("Create NodeMaintenance")
+			nm := testutils.GetTestNodeMaintenance("test-nm", "test-node-0", "some-operator.nvidia.com", "")
+			nm.Spec.WaitForPodCompletion = &maintenancev1.WaitForPodCompletionSpec{}
+			Expect(k8sClient.Create(testCtx, nm)).ToNot(HaveOccurred())
+			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
+
+			By("Create test pod")
+			pod := testutils.GetTestPod("test-pod", "test-node-0", nil)
+			Expect(k8sClient.Create(testCtx, pod)).ToNot(HaveOccurred())
+			podObjectsToCleanup = append(podObjectsToCleanup, pod)
+
+			By("Eventually NodeMaintenance condition is set to Pending")
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))
+
+			By("Set NodeMaintenance to Scheduled")
+			Expect(k8sClient.Get(testCtx, types.NamespacedName{Namespace: "default", Name: "test-nm"}, nm)).ToNot(HaveOccurred())
+			Expect(k8sutils.SetReadyConditionReason(testCtx, k8sClient, nm, maintenancev1.ConditionReasonScheduled)).ToNot(HaveOccurred())
+
+			By("Eventually NodeMaintenance condition is set to WaitForPodCompletion")
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonWaitForPodCompletion))
+
+			By("Consistently NodeMaintenance remains in WaitForPodComletion")
+			Consistently(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				Within(time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonWaitForPodCompletion))
+
+			By("After deleting pod, NodeMaintenance is eventually Ready")
+			// NOTE(adrianc) for pods we must provide DeleteOptions as below else apiserver will not delete pod object
+			var grace int64
+			Expect(k8sClient.Delete(testCtx, pod, &client.DeleteOptions{GracePeriodSeconds: &grace, Preconditions: &metav1.Preconditions{UID: &pod.UID}})).
+				ToNot(HaveOccurred())
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(20 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonReady))
+
+			By("Validating expected")
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-node-0",
+				},
+			}
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
+			Expect(node.Spec.Unschedulable).To(BeTrue())
+
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).ToNot(HaveOccurred())
+			Expect(nm.Annotations[cordon.NodeInitialStateUnschedulableAnnot]).To(Equal("false"))
+			Expect(nm.Annotations[podcompletion.WaitForPodCompletionStartAnnot]).ToNot(BeEmpty())
+			Expect(nm.Annotations[ReadyTimeAnnotation]).ToNot(BeEmpty())
+
+			By("ConditionChanged events are sent for NodeMaintenance")
+			Eventually(testutils.EventsForObjFn(testCtx, k8sClient, nm.UID)).WithTimeout(10 * time.Second).
+				WithPolling(1 * time.Second).Should(ContainElements(
+				maintenancev1.ConditionReasonPending, maintenancev1.ConditionReasonCordon,
+				maintenancev1.ConditionReasonWaitForPodCompletion, maintenancev1.ConditionReasonReady))
+
+			By("Should Uncordon node after NodeMaintenance is deleted")
+			Expect(k8sClient.Delete(testCtx, nm)).ToNot(HaveOccurred())
+			Eventually(func() bool {
+				node := &corev1.Node{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-node-0",
+					},
 				}
-				return ""
-			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))
+				Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
+				return node.Spec.Unschedulable
+			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(BeFalse())
 		})
 	})
 
@@ -150,5 +248,4 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			})
 		})
 	})
-
 })

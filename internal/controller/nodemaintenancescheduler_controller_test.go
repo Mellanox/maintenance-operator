@@ -126,8 +126,8 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 			nmObjectsToCleanup = append(nmObjectsToCleanup, nodeMaintenanceResource)
 
 			By("update Ready condition reason to Pending")
-			k8sutils.SetReadyConditionReason(nodeMaintenanceResource, maintenancev1.ConditionReasonPending)
-			Expect(k8sClient.Status().Update(testCtx, nodeMaintenanceResource))
+			Expect(k8sutils.SetReadyConditionReason(testCtx, k8sClient, nodeMaintenanceResource, maintenancev1.ConditionReasonPending)).
+				ToNot(HaveOccurred())
 
 			By("Eventually NodeMaintenance condition is set to Scheduled")
 			Eventually(func() string {
