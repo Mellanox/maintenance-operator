@@ -40,6 +40,7 @@ import (
 	maintenancev1alpha1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/controller"
 	"github.com/Mellanox/maintenance-operator/internal/cordon"
+	"github.com/Mellanox/maintenance-operator/internal/drain"
 	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/scheduler"
@@ -144,6 +145,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := ctrl.SetupSignalHandler()
 	mgrClient := mgr.GetClient()
 
 	nmrOptions := controller.NewNodeMaintenanceReconcilerOptions()
@@ -153,6 +155,7 @@ func main() {
 		Options:                  nmrOptions,
 		CordonHandler:            cordon.NewCordonHandler(mgrClient, k8sInterface),
 		WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(mgrClient),
+		DrainManager:             drain.NewManager(ctrl.Log.WithName("DrainManager"), ctx, k8sInterface),
 	}).SetupWithManager(mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
 		os.Exit(1)
@@ -191,7 +194,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx := ctrl.SetupSignalHandler()
 	// index fields in mgr cache
 
 	// pod spec.nodeName used in nodemaintenance controller.

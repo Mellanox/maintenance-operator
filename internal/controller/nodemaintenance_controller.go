@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -39,14 +42,17 @@ import (
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/cordon"
+	"github.com/Mellanox/maintenance-operator/internal/drain"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
 	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
+	"github.com/Mellanox/maintenance-operator/internal/utils"
 )
 
 var (
 	defaultMaxNodeMaintenanceTime = 1600 * time.Second
 	waitPodCompletionRequeueTime  = 10 * time.Second
+	drainReqeueTime               = 10 * time.Second
 )
 
 const (
@@ -101,6 +107,7 @@ type NodeMaintenanceReconciler struct {
 	Options                  *NodeMaintenanceReconcilerOptions
 	CordonHandler            cordon.Handler
 	WaitPodCompletionHandler podcompletion.Handler
+	DrainManager             drain.Manager
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
@@ -109,6 +116,7 @@ type NodeMaintenanceReconciler struct {
 //+kubebuilder:rbac:groups="",resources=events,verbs=create
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;watch;list;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create;get;list;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -123,6 +131,7 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// load any stored options
 	r.Options.Load()
 	reqLog.Info("loaded options", "maxNodeMaintenanceTime", r.Options.MaxNodeMaintenanceTime())
+	reqLog.Info("outstanding drain requests", "num", len(r.DrainManager.ListRequests()))
 
 	// get NodeMaintenance object
 	nm := &maintenancev1.NodeMaintenance{}
@@ -184,7 +193,10 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			reqLog.Error(err, "failed to handle waitForPodCompletion state for NodeMaintenance object")
 		}
 	case maintenancev1.ConditionReasonDraining:
-		// TODO(adrianc): implement
+		res, err = r.handleDrainState(ctx, reqLog, nm, node)
+		if err != nil {
+			reqLog.Error(err, "failed to handle drain state for NodeMaintenance object")
+		}
 	case maintenancev1.ConditionReasonReady:
 		err = r.handleReadyState(ctx, reqLog, nm, node)
 		if err != nil {
@@ -341,6 +353,115 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 	}
 
 	// update condition and send event
+	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonDraining)
+	if err != nil {
+		reqLog.Error(err, "failed to update status for NodeMaintenance object")
+		return res, err
+	}
+
+	r.EventRecorder.Event(
+		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonDraining)
+
+	return res, nil
+}
+
+func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
+	reqLog.Info("Handle Draining NodeMaintenance")
+	var err error
+	var res ctrl.Result
+
+	if !nm.GetDeletionTimestamp().IsZero() {
+		// object is being deleted, handle cleanup.
+		reqLog.Info("NodeMaintenance object is deleting")
+
+		reqLog.Info("handle drain request removal")
+		drainReqUID := drain.DrainRequestUIDFromNodeMaintenance(nm)
+		req := r.DrainManager.GetRequest(drainReqUID)
+		if req != nil {
+			reqLog.Info("stopping and removing drain request", "reqUID", drainReqUID, "state", req.State())
+		}
+		r.DrainManager.RemoveRequest(drainReqUID)
+
+		if nm.Spec.Cordon {
+			reqLog.Info("handle uncordon of node, ", "node", node.Name)
+			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
+			if err != nil {
+				return res, err
+			}
+		}
+
+		// TODO(adrianc): unpause MCP in OCP when support is added.
+
+		// remove finalizer if exists and return
+		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+		if err != nil {
+			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+		}
+		return res, err
+	}
+
+	if nm.Spec.DrainSpec != nil {
+		drainReqUID := drain.DrainRequestUIDFromNodeMaintenance(nm)
+		req := r.DrainManager.GetRequest(drainReqUID)
+		if req == nil {
+			reqLog.Info("sending new drain request")
+			req = r.DrainManager.NewDrainRequest(nm)
+			// reset and update initial drain status
+			nm.Status.Drain = nil
+			if err = r.updateDrainStatus(ctx, nm, req); err != nil {
+				return res, err
+			}
+			_ = r.DrainManager.AddRequest(req)
+			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+		}
+
+		reqLog.Info("drain request details", "uid", req.UID(), "state", req.State())
+
+		// handle update of drain spec
+		if !reflect.DeepEqual(req.Spec().Spec, *nm.Spec.DrainSpec) {
+			reqLog.Info("drain spec has changed, removing current request and requeue")
+			r.DrainManager.RemoveRequest(req.UID())
+			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+		}
+
+		if req.State() == drain.DrainStateInProgress {
+			// update progress and requeue
+			if err = r.updateDrainStatus(ctx, nm, req); err != nil {
+				return res, err
+			}
+			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+		}
+
+		// handle request in error state
+		if req.State() == drain.DrainStateError || req.State() == drain.DrainStateCanceled {
+			reqLog.Info("drain request error. removing current request and requeue", "state", req.State())
+			r.DrainManager.RemoveRequest(req.UID())
+			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+		}
+
+		// Drain completed successfully
+		reqLog.Info("drain completed successfully", "reqUID", req.UID(), "state", req.State())
+		if err = r.updateDrainStatus(ctx, nm, req); err != nil {
+			return res, err
+		}
+
+		r.DrainManager.RemoveRequest(req.UID())
+	} else {
+		// if nil, remove any pending requests for NodeMaintenance if present
+		r.DrainManager.RemoveRequest(drain.DrainRequestUIDFromNodeMaintenance(nm))
+		if nm.Status.Drain != nil {
+			// clear out drain status
+			nm.Status.Drain = nil
+			err = r.Client.Status().Update(ctx, nm)
+			if err != nil {
+				reqLog.Error(err, "failed to update drain status for NodeMaintenance object")
+				return res, err
+			}
+		}
+	}
+
+	// update condition and send event
 	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonReady)
 	if err != nil {
 		reqLog.Error(err, "failed to update status for NodeMaintenance object")
@@ -351,6 +472,44 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonReady)
 
 	return res, nil
+}
+
+// updateDrainStatus updates NodeMaintenance drain status in place. returns error if occurred
+func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *maintenancev1.NodeMaintenance, drainReq drain.DrainRequest) error {
+	ds, err := drainReq.Status()
+	if err != nil {
+		return fmt.Errorf("failed to update drain status. %w", err)
+	}
+
+	if nm.Status.Drain == nil {
+		// set initial status
+		podsOnNode := &corev1.PodList{}
+		selectorFields := fields.OneTermEqualSelector("spec.nodeName", nm.Spec.NodeName)
+		err = r.Client.List(ctx, podsOnNode, &client.ListOptions{FieldSelector: selectorFields})
+		if err != nil {
+			return fmt.Errorf("failed to list pods. %w", err)
+		}
+
+		nm.Status.Drain = &maintenancev1.DrainStatus{
+			TotalPods:    uint32(len(podsOnNode.Items)),
+			EvictionPods: uint32(len(ds.PodsToDelete)),
+		}
+	}
+
+	removedPods := utils.MaxInt(int(nm.Status.Drain.EvictionPods)-len(ds.PodsToDelete), 0)
+
+	nm.Status.Drain.DrainProgress = 100
+	if nm.Status.Drain.EvictionPods != 0 {
+		nm.Status.Drain.DrainProgress = uint32(float32(removedPods) / float32(nm.Status.Drain.EvictionPods) * 100)
+	}
+	nm.Status.Drain.WaitForEviction = ds.PodsToDelete
+
+	err = r.Client.Status().Update(ctx, nm)
+	if err != nil {
+		return fmt.Errorf("failed to update drain status for NodeMaintenance object. %w", err)
+	}
+
+	return nil
 }
 
 func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) error {
