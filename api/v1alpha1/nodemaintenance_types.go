@@ -157,10 +157,10 @@ type NodeMaintenanceStatus struct {
 
 // DrainStatus represents the status of draining for the node
 type DrainStatus struct {
-	// TotalPods is the number of pods on the node at the time NodeMaintenance was Scheduled
+	// TotalPods is the number of pods on the node at the time NodeMaintenance started draining
 	TotalPods uint32 `json:"totalPods,omitempty"`
 
-	// EvictionPods is the total number of pods that need to be evicted at the time NodeMaintenance was scheduled
+	// EvictionPods is the total number of pods that need to be evicted at the time NodeMaintenance started draining
 	EvictionPods uint32 `json:"evictionPods,omitempty"`
 
 	// DrainProgress represents the draining progress as percentage
