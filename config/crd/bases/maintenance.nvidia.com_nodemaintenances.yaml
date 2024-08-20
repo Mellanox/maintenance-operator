@@ -52,6 +52,15 @@ spec:
           spec:
             description: NodeMaintenanceSpec defines the desired state of NodeMaintenance
             properties:
+              additionalRequestors:
+                description: |-
+                  AdditionalRequestors is a set of additional requestor IDs which are using the same NodeMaintenance
+                  request. addition or removal of requiestor IDs to this list MUST be made with update operation (and retry on failure)
+                  which will replace the entire list.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
               cordon:
                 default: true
                 description: Cordon if set, marks node as unschedulable during maintenance
