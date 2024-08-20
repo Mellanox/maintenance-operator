@@ -205,6 +205,11 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Within(time.Second).WithPolling(100 * time.Millisecond).
 				Should(Equal(maintenancev1.ConditionReasonWaitForPodCompletion))
 
+			By("Setting Additional requestor for node maintenance")
+			Expect(k8sClient.Get(testCtx, types.NamespacedName{Namespace: "default", Name: "test-nm"}, nm)).ToNot(HaveOccurred())
+			nm.Spec.AdditionalRequestors = append(nm.Spec.AdditionalRequestors, "another-requestor.nvidia.com")
+			Expect(k8sClient.Update(testCtx, nm)).ToNot(HaveOccurred())
+
 			By("After deleting wait for completion pod, NodeMaintenance is Draining")
 			// NOTE(adrianc): for pods we must provide DeleteOptions as below else apiserver will not delete pod object
 			var grace int64
@@ -244,8 +249,21 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				maintenancev1.ConditionReasonWaitForPodCompletion, maintenancev1.ConditionReasonDraining,
 				maintenancev1.ConditionReasonReady))
 
-			By("Should Uncordon node after NodeMaintenance is deleted")
+			By("Object is not removed when deleted due to having AdditionalRequestors")
 			Expect(k8sClient.Delete(testCtx, nm)).ToNot(HaveOccurred())
+			Consistently(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).
+				Within(time.Second).WithPolling(100 * time.Millisecond).
+				Should(Succeed())
+
+			By("Node remains cordoned")
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
+			Expect(node.Spec.Unschedulable).To(BeTrue())
+
+			By("Remove AdditionalRequestros")
+			nm.Spec.AdditionalRequestors = nil
+			Expect(k8sClient.Update(testCtx, nm)).ToNot(HaveOccurred())
+
+			By("Should Uncordon node after NodeMaintenance is deleted")
 			Eventually(func() bool {
 				node := &corev1.Node{
 					ObjectMeta: metav1.ObjectMeta{
@@ -255,6 +273,11 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
 				return node.Spec.Unschedulable
 			}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(BeFalse())
+
+			By("Node maintenance no longer exists")
+			err := k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)
+			Expect(err).To(HaveOccurred())
+			Expect(k8serrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 
