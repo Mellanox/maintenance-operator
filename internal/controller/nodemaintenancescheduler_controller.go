@@ -158,8 +158,8 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, err
 	}
 
-	if schedCtx.AvailableSlots == 0 {
-		r.Log.Info("no slots available for maintenance scheduling")
+	if len(schedCtx.CandidateMaintenance) == 0 {
+		r.Log.Info("no candidate NodeMaintenance requests")
 		return schedulerResyncResult, nil
 	}
 
@@ -168,8 +168,8 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 		return schedulerResyncResult, nil
 	}
 
-	if len(schedCtx.CandidateMaintenance) == 0 {
-		r.Log.Info("no candidate NodeMaintenance requests")
+	if schedCtx.AvailableSlots == 0 {
+		r.Log.Info("no slots available for maintenance scheduling")
 		return schedulerResyncResult, nil
 	}
 
