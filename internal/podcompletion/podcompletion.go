@@ -91,7 +91,7 @@ func (p *podCompletionHandler) HandlePodCompletion(ctx context.Context, reqLog l
 	// check expire time
 	if nm.Spec.WaitForPodCompletion.TimeoutSecond > 0 {
 		timeNow := time.Now()
-		timeExpire := startTime.Add(time.Duration(nm.Spec.WaitForPodCompletion.TimeoutSecond * uint32(time.Second)))
+		timeExpire := startTime.Add(time.Duration(nm.Spec.WaitForPodCompletion.TimeoutSecond * int32(time.Second)))
 		if timeNow.After(timeExpire) {
 			reqLog.Error(nil, "HandlePodCompletion timeout reached")
 			return nil, ErrPodCompletionTimeout

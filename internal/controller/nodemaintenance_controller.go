@@ -485,8 +485,8 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 		}
 
 		nm.Status.Drain = &maintenancev1.DrainStatus{
-			TotalPods:    uint32(len(podsOnNode.Items)),
-			EvictionPods: uint32(len(ds.PodsToDelete)),
+			TotalPods:    int32(len(podsOnNode.Items)),
+			EvictionPods: int32(len(ds.PodsToDelete)),
 		}
 	}
 
@@ -494,7 +494,7 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 
 	nm.Status.Drain.DrainProgress = 100
 	if nm.Status.Drain.EvictionPods != 0 {
-		nm.Status.Drain.DrainProgress = uint32(float32(removedPods) / float32(nm.Status.Drain.EvictionPods) * 100)
+		nm.Status.Drain.DrainProgress = int32(float32(removedPods) / float32(nm.Status.Drain.EvictionPods) * 100)
 	}
 	nm.Status.Drain.WaitForEviction = ds.PodsToDelete
 

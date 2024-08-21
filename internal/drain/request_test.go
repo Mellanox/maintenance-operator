@@ -79,7 +79,7 @@ var _ = Describe("DrainRequest tests", func() {
 		It("returns expected Spec", func() {
 			spec := drainReq.Spec()
 			Expect(spec.NodeName).To(Equal(node.Name))
-			Expect(spec.Spec.TimeoutSecond).To(Equal(uint32(10)))
+			Expect(spec.Spec.TimeoutSecond).To(Equal(int32(10)))
 		})
 	})
 

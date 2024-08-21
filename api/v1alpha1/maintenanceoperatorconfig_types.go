@@ -54,7 +54,8 @@ type MaintenanceOperatorConfigSpec struct {
 	// should be less than idle time for any autoscaler that is running.
 	// default to 30m (1600 seconds)
 	// +kubebuilder:default=1600
-	MaxNodeMaintenanceTimeSeconds uint32 `json:"maxNodeMaintenanceTimeSeconds,omitempty"`
+	// +kubebuilder:validation:Minimum:=0
+	MaxNodeMaintenanceTimeSeconds int32 `json:"maxNodeMaintenanceTimeSeconds,omitempty"`
 }
 
 //+kubebuilder:object:root=true

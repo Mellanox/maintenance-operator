@@ -103,7 +103,7 @@ type WaitForPodCompletionSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=0
 	// +kubebuilder:validation:Minimum:=0
-	TimeoutSecond uint32 `json:"timeoutSeconds,omitempty"`
+	TimeoutSecond int32 `json:"timeoutSeconds,omitempty"`
 }
 
 // DrainSpec describes configuration for node drain during automatic upgrade
@@ -123,7 +123,7 @@ type DrainSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=300
 	// +kubebuilder:validation:Minimum:=0
-	TimeoutSecond uint32 `json:"timeoutSeconds,omitempty"`
+	TimeoutSecond int32 `json:"timeoutSeconds,omitempty"`
 
 	// DeleteEmptyDir indicates if should continue even if there are pods using emptyDir
 	// (local data that will be deleted when the node is drained)
@@ -163,13 +163,16 @@ type NodeMaintenanceStatus struct {
 // DrainStatus represents the status of draining for the node
 type DrainStatus struct {
 	// TotalPods is the number of pods on the node at the time NodeMaintenance started draining
-	TotalPods uint32 `json:"totalPods,omitempty"`
+	// +kubebuilder:validation:Minimum:=0
+	TotalPods int32 `json:"totalPods"`
 
 	// EvictionPods is the total number of pods that need to be evicted at the time NodeMaintenance started draining
-	EvictionPods uint32 `json:"evictionPods,omitempty"`
+	// +kubebuilder:validation:Minimum:=0
+	EvictionPods int32 `json:"evictionPods"`
 
 	// DrainProgress represents the draining progress as percentage
-	DrainProgress uint32 `json:"drainProgress,omitempty"`
+	// +kubebuilder:validation:Minimum:=0
+	DrainProgress int32 `json:"drainProgress"`
 
 	// WaitForEviction is the list of namespaced named pods that need to be evicted
 	WaitForEviction []string `json:"waitForEviction,omitempty"`
