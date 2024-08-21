@@ -26,17 +26,17 @@ import (
 )
 
 var _ = Describe("Utils Tests", func() {
-	Context("MinInt", func() {
+	Context("Min", func() {
 		It("returns minimum of two integers", func() {
-			Expect(utils.MinInt(5, 6)).To(Equal(5))
-			Expect(utils.MinInt(6, 5)).To(Equal(5))
+			Expect(utils.Min(5, 6)).To(Equal(5))
+			Expect(utils.Min(6, 5)).To(Equal(5))
 		})
 	})
 
-	Context("MaxInt", func() {
+	Context("Max", func() {
 		It("returns maximum of two integers", func() {
-			Expect(utils.MaxInt(5, 6)).To(Equal(6))
-			Expect(utils.MaxInt(6, 5)).To(Equal(6))
+			Expect(utils.Max(5, 6)).To(Equal(6))
+			Expect(utils.Max(6, 5)).To(Equal(6))
 		})
 	})
 

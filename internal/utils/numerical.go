@@ -16,16 +16,18 @@
 
 package utils
 
-// MinInt returns the min of two integers
-func MinInt(a int, b int) int {
+import "cmp"
+
+// Min returns the min between a and b
+func Min[T cmp.Ordered](a T, b T) T {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-// MaxInt returns the max of two integers
-func MaxInt(a int, b int) int {
+// Max returns the max between a and b
+func Max[T cmp.Ordered](a T, b T) T {
 	if a > b {
 		return a
 	}

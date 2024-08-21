@@ -496,7 +496,7 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 		}
 	}
 
-	removedPods := utils.MaxInt(int(nm.Status.Drain.EvictionPods)-len(ds.PodsToDelete), 0)
+	removedPods := utils.Max(int(nm.Status.Drain.EvictionPods)-len(ds.PodsToDelete), 0)
 
 	nm.Status.Drain.DrainProgress = 100
 	if nm.Status.Drain.EvictionPods != 0 {
