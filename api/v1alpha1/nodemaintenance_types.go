@@ -21,11 +21,17 @@ import (
 )
 
 const (
-	// ConditionTypeReady is the Ready  Condition.Type for NodeMaintenance
+	// ConditionTypeReady is the Ready Condition type for NodeMaintenance.
+	// It is used to convey node readiness for maintenance operation by the requestor.
 	ConditionTypeReady string = "Ready"
+	// ConditionTypeRequestorFailed is the RequestorFailed Condition type for NodeMaintenance.
+	// It is used to convey failure during node maintenance operation by the requestor.
+	ConditionTypeRequestorFailed string = "RequestorFailed"
 )
 
 const (
+	// Condition Reasons for ConditionTypeReady condition type.
+
 	// ConditionReasonUninitialized means that Condition is unset for NodeMaintenance
 	ConditionReasonUninitialized string = ""
 	// ConditionReasonPending means that NodeMaintenance is in Pending state
@@ -40,8 +46,14 @@ const (
 	ConditionReasonDraining string = "Draining"
 	// ConditionReasonReady means that NodeMaintenance is in Ready state
 	ConditionReasonReady string = "Ready"
-	// ConditionReasonAborted means that NodeMaintenance is in Aborted state
-	ConditionReasonAborted string = "Aborted"
+	// ConditionReasonRequestorFailed means that NodeMaintenance operation by the requestor has failed
+	// garbage collection will not occur if this reason is set.
+	ConditionReasonRequestorFailed string = ConditionTypeRequestorFailed
+
+	// Condition Reasons for ConditionTypeRequestorFailed condition type.
+
+	// ConditionReasonFailedMaintenance means that maintenance operation failed in a non-recoverable way
+	ConditionReasonFailedMaintenance string = "FailedMaintenance"
 )
 
 const (
@@ -186,6 +198,7 @@ type DrainStatus struct {
 // +kubebuilder:printcolumn:name="Requestor",type="string",JSONPath=`.spec.requestorID`
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].reason`
+// +kubebuilder:printcolumn:name="Failed",type="string",JSONPath=`.status.conditions[?(@.type=='Failed')].reason`
 
 // NodeMaintenance is the Schema for the nodemaintenances API
 type NodeMaintenance struct {
