@@ -275,11 +275,11 @@ func (r *NodeMaintenanceSchedulerReconciler) preSchedule(nodes []*corev1.Node, n
 		return nil, errors.Wrapf(err, "failed to calculate max parallel operations allowed in the cluster")
 	}
 
-	availableSlots := utils.MinInt(utils.MaxInt(0, maxOperations-len(nodesUnderMaintenance)), len(nodes))
+	availableSlots := utils.Min(utils.Max(0, maxOperations-len(nodesUnderMaintenance)), len(nodes))
 
 	canBecomeUnavailable := availableSlots
 	if maxUnavailable >= 0 {
-		canBecomeUnavailable = utils.MaxInt(0, maxUnavailable-len(totalNodeUnavailable))
+		canBecomeUnavailable = utils.Max(0, maxUnavailable-len(totalNodeUnavailable))
 	}
 
 	// we cannot schedule New NodeMaintenance on nodes that currently undergo maintenance candidateNodes holds nodes that have pending
