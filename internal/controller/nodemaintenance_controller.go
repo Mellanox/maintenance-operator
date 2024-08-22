@@ -50,9 +50,10 @@ import (
 )
 
 var (
-	defaultMaxNodeMaintenanceTime = 1600 * time.Second
-	waitPodCompletionRequeueTime  = 10 * time.Second
-	drainReqeueTime               = 10 * time.Second
+	defaultMaxNodeMaintenanceTime   = 1600 * time.Second
+	waitPodCompletionRequeueTime    = 10 * time.Second
+	drainReqeueTime                 = 10 * time.Second
+	additionalRequestorsRequeueTime = 10 * time.Second
 )
 
 const (
@@ -198,13 +199,23 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			reqLog.Error(err, "failed to handle drain state for NodeMaintenance object")
 		}
 	case maintenancev1.ConditionReasonReady:
-		err = r.handleReadyState(ctx, reqLog, nm, node)
+		res, err = r.handleReadyState(ctx, reqLog, nm, node)
 		if err != nil {
 			reqLog.Error(err, "failed to handle Ready state for NodeMaintenance object")
 		}
 	}
 
 	return res, err
+}
+
+// handleFinalizerRemoval handles the removal of node maintenance finalizer
+func (r *NodeMaintenanceReconciler) handleFinalizerRemoval(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
+	reqLog.Info("removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+	err := k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
+	if err != nil {
+		reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+	}
+	return err
 }
 
 // handleUninitiaizedState handles NodeMaintenance in ConditionReasonUninitialized state
@@ -230,8 +241,8 @@ func (r *NodeMaintenanceReconciler) handleUninitiaizedState(ctx context.Context,
 // it eventually sets NodeMaintenance Ready condition Reason to ConditionReasonWaitForPodCompletion
 func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
 	reqLog.Info("Handle Scheduled NodeMaintenance")
-	// handle finalizers
 	var err error
+
 	if nm.GetDeletionTimestamp().IsZero() {
 		// conditionally add finalizer
 		err = k8sutils.AddFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
@@ -241,12 +252,8 @@ func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, re
 		}
 	} else {
 		// object is being deleted, remove finalizer if exists and return
-		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
-		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
-		if err != nil {
-			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
-		}
-		return err
+		reqLog.Info("NodeMaintenance object is deleting", "namespace", nm.Namespace, "name", nm.Name)
+		return r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
 	// TODO(adrianc): in openshift, we should pause MCP here
@@ -271,6 +278,7 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 
 	if !nm.GetDeletionTimestamp().IsZero() {
 		reqLog.Info("NodeMaintenance object is deleting")
+
 		if nm.Spec.Cordon {
 			reqLog.Info("handle uncordon of node, ", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
@@ -280,13 +288,7 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 		}
 
 		// TODO(adrianc): unpause MCP in OCP when support is added.
-
-		reqLog.Info("remove maintenance finalizer for node maintenance", "namespace", nm.Namespace, "name", nm.Name)
-		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
-		if err != nil {
-			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
-		}
-		return err
+		return r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
 	if nm.Spec.Cordon {
@@ -317,6 +319,7 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 	if !nm.GetDeletionTimestamp().IsZero() {
 		// object is being deleted, handle cleanup.
 		reqLog.Info("NodeMaintenance object is deleting")
+
 		if nm.Spec.Cordon {
 			reqLog.Info("handle uncordon of node, ", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
@@ -326,13 +329,7 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 		}
 
 		// TODO(adrianc): unpause MCP in OCP when support is added.
-
-		// remove finalizer if exists and return
-		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
-		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
-		if err != nil {
-			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
-		}
+		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
 		return res, err
 	}
 
@@ -394,10 +391,7 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 
 		// remove finalizer if exists and return
 		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
-		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
-		if err != nil {
-			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
-		}
+		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
 		return res, err
 	}
 
@@ -512,31 +506,33 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 	return nil
 }
 
-func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) error {
+func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
 	reqLog.Info("Handle Ready NodeMaintenance")
-	// handle finalizers
 	var err error
+	var res ctrl.Result
 
 	if !nm.GetDeletionTimestamp().IsZero() {
 		// object is being deleted, handle cleanup.
 		reqLog.Info("NodeMaintenance object is deleting")
+
+		if len(nm.Spec.AdditionalRequestors) > 0 {
+			reqLog.Info("additional requestors for node maintenance. waiting for list to clear, requeue request", "additionalRequestors", nm.Spec.AdditionalRequestors)
+			return ctrl.Result{Requeue: true, RequeueAfter: additionalRequestorsRequeueTime}, nil
+		}
+
 		if nm.Spec.Cordon {
 			reqLog.Info("handle uncordon of node, ", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
 			if err != nil {
-				return err
+				return res, err
 			}
 		}
 
 		// TODO(adrianc): unpause MCP in OCP when support is added.
 
 		// remove finalizer if exists and return
-		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
-		err = k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
-		if err != nil {
-			reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
-		}
-		return err
+		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
+		return res, err
 	}
 
 	// set ready-time annotation
@@ -545,11 +541,11 @@ func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog
 		metav1.SetMetaDataAnnotation(&nm.ObjectMeta, ReadyTimeAnnotation, time.Now().UTC().Format(time.RFC3339))
 		err := r.Update(ctx, nm)
 		if err != nil {
-			return err
+			return res, err
 		}
 	}
 
-	return nil
+	return res, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

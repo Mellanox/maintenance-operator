@@ -66,6 +66,13 @@ type NodeMaintenanceSpec struct {
 	// +kubebuilder:validation:MinLength=2
 	RequestorID string `json:"requestorID"`
 
+	// AdditionalRequestors is a set of additional requestor IDs which are using the same NodeMaintenance
+	// request. addition or removal of requiestor IDs to this list MUST be made with update operation (and retry on failure)
+	// which will replace the entire list.
+	// +kubebuilder:validation:Optional
+	// +listType=set
+	AdditionalRequestors []string `json:"additionalRequestors,omitempty"`
+
 	// NodeName is The name of the node that maintenance operation will be performed on
 	// creation fails if node obj does not exist (webhook)
 	NodeName string `json:"nodeName"`
@@ -143,11 +150,9 @@ type PodEvictionFiterEntry struct {
 type NodeMaintenanceStatus struct {
 	// Conditions represents observations of NodeMaintenance current state
 	// +kubebuilder:validation:Optional
-	// +patchMergeKey=type
-	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty" patchMergeKey:"type" patchStrategy:"merge" protobuf:"bytes,1,rep,name=conditions"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// WaitForCompletion is the list of namespaced named pods that we wait to complete
 	WaitForCompletion []string `json:"waitForCompletion,omitempty"`
