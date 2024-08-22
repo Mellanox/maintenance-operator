@@ -57,6 +57,7 @@ spec:
                   should be less than idle time for any autoscaler that is running.
                   default to 30m (1600 seconds)
                 format: int32
+                minimum: 0
                 type: integer
               maxParallelOperations:
                 anyOf:

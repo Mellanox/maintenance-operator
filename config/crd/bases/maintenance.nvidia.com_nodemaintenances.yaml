@@ -236,16 +236,19 @@ spec:
                     description: DrainProgress represents the draining progress as
                       percentage
                     format: int32
+                    minimum: 0
                     type: integer
                   evictionPods:
                     description: EvictionPods is the total number of pods that need
                       to be evicted at the time NodeMaintenance started draining
                     format: int32
+                    minimum: 0
                     type: integer
                   totalPods:
                     description: TotalPods is the number of pods on the node at the
                       time NodeMaintenance started draining
                     format: int32
+                    minimum: 0
                     type: integer
                   waitForEviction:
                     description: WaitForEviction is the list of namespaced named pods
@@ -253,6 +256,10 @@ spec:
                     items:
                       type: string
                     type: array
+                required:
+                - drainProgress
+                - evictionPods
+                - totalPods
                 type: object
               waitForCompletion:
                 description: WaitForCompletion is the list of namespaced named pods
