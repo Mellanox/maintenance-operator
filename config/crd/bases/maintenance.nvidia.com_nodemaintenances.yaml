@@ -230,12 +230,12 @@ spec:
                     type: integer
                   evictionPods:
                     description: EvictionPods is the total number of pods that need
-                      to be evicted at the time NodeMaintenance was scheduled
+                      to be evicted at the time NodeMaintenance started draining
                     format: int32
                     type: integer
                   totalPods:
                     description: TotalPods is the number of pods on the node at the
-                      time NodeMaintenance was Scheduled
+                      time NodeMaintenance started draining
                     format: int32
                     type: integer
                   waitForEviction:

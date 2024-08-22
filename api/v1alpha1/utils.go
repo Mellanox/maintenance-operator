@@ -16,9 +16,36 @@
 
 package v1alpha1
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+
+	corev1 "k8s.io/api/core/v1"
+)
 
 // CanonicalString is a canonical string representation of NodeMaintenance
 func (nm *NodeMaintenance) CanonicalString() string {
 	return fmt.Sprintf("%s/%s:%s@%s", nm.Namespace, nm.Name, nm.Spec.RequestorID, nm.Spec.NodeName)
+}
+
+// Match matches PodEvictionFiterEntry on pod. returns true if Pod matches filter, false otherwise.
+func (e *PodEvictionFiterEntry) Match(pod *corev1.Pod) bool {
+	var match bool
+	// match on ByResourceName regex
+	re, err := regexp.Compile(*e.ByResourceNameRegex)
+	if err != nil {
+		return match
+	}
+
+OUTER:
+	for _, c := range pod.Spec.Containers {
+		for resourceName := range c.Resources.Requests {
+			if re.MatchString(resourceName.String()) {
+				match = true
+				break OUTER
+			}
+		}
+	}
+
+	return match
 }

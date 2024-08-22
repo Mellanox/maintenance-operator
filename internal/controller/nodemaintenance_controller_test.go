@@ -34,6 +34,7 @@ import (
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/cordon"
+	"github.com/Mellanox/maintenance-operator/internal/drain"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/testutils"
@@ -78,6 +79,8 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Options:                  options,
 				CordonHandler:            cordon.NewCordonHandler(k8sClient, k8sInterface),
 				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(k8sClient),
+				DrainManager: drain.NewManager(ctrllog.Log.WithName("DrainManager"),
+					testCtx, k8sInterface),
 			}
 
 			// setup reconciler with manager
@@ -167,14 +170,23 @@ var _ = Describe("NodeMaintenance Controller", func() {
 		It("Full lifecycle of NodeMaintenance", func() {
 			By("Create NodeMaintenance")
 			nm := testutils.GetTestNodeMaintenance("test-nm", "test-node-0", "some-operator.nvidia.com", "")
-			nm.Spec.WaitForPodCompletion = &maintenancev1.WaitForPodCompletionSpec{}
+			nm.Spec.WaitForPodCompletion = &maintenancev1.WaitForPodCompletionSpec{PodSelector: "for=wait-completion"}
+			nm.Spec.DrainSpec = &maintenancev1.DrainSpec{
+				Force:       true,
+				PodSelector: "for=drain",
+			}
 			Expect(k8sClient.Create(testCtx, nm)).ToNot(HaveOccurred())
 			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
 
-			By("Create test pod")
-			pod := testutils.GetTestPod("test-pod", "test-node-0", nil)
-			Expect(k8sClient.Create(testCtx, pod)).ToNot(HaveOccurred())
-			podObjectsToCleanup = append(podObjectsToCleanup, pod)
+			By("Create test pods")
+			// pod to wait on for completion
+			podForWaitCompletion := testutils.GetTestPod("test-pod", "test-node-0", map[string]string{"for": "wait-completion"})
+			Expect(k8sClient.Create(testCtx, podForWaitCompletion)).ToNot(HaveOccurred())
+			podObjectsToCleanup = append(podObjectsToCleanup, podForWaitCompletion)
+			// pod for drain
+			podForDrain := testutils.GetTestPod("test-pod-2", "test-node-0", map[string]string{"for": "drain"})
+			Expect(k8sClient.Create(testCtx, podForDrain)).ToNot(HaveOccurred())
+			podObjectsToCleanup = append(podObjectsToCleanup, podForDrain)
 
 			By("Eventually NodeMaintenance condition is set to Pending")
 			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
@@ -193,13 +205,23 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Within(time.Second).WithPolling(100 * time.Millisecond).
 				Should(Equal(maintenancev1.ConditionReasonWaitForPodCompletion))
 
-			By("After deleting pod, NodeMaintenance is eventually Ready")
-			// NOTE(adrianc) for pods we must provide DeleteOptions as below else apiserver will not delete pod object
+			By("After deleting wait for completion pod, NodeMaintenance is Draining")
+			// NOTE(adrianc): for pods we must provide DeleteOptions as below else apiserver will not delete pod object
 			var grace int64
-			Expect(k8sClient.Delete(testCtx, pod, &client.DeleteOptions{GracePeriodSeconds: &grace, Preconditions: &metav1.Preconditions{UID: &pod.UID}})).
+			Expect(k8sClient.Delete(testCtx, podForWaitCompletion, &client.DeleteOptions{
+				GracePeriodSeconds: &grace, Preconditions: &metav1.Preconditions{UID: &podForWaitCompletion.UID}})).
 				ToNot(HaveOccurred())
 			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
-				WithTimeout(20 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonReady))
+				WithTimeout(20 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonDraining))
+
+			By("Eventually NodeMaintenance is Ready")
+			// NOTE(adrianc): as above comment, we need to "help" drain to delete the targeted pod since api server will not
+			// delete pod object without setting specific delete options
+			Expect(k8sClient.Delete(testCtx, podForDrain, &client.DeleteOptions{
+				GracePeriodSeconds: &grace, Preconditions: &metav1.Preconditions{UID: &podForDrain.UID}})).
+				ToNot(HaveOccurred())
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(20 * time.Second).WithPolling(5 * time.Second).Should(Equal(maintenancev1.ConditionReasonReady))
 
 			By("Validating expected")
 			node := &corev1.Node{
@@ -219,7 +241,8 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			Eventually(testutils.EventsForObjFn(testCtx, k8sClient, nm.UID)).WithTimeout(10 * time.Second).
 				WithPolling(1 * time.Second).Should(ContainElements(
 				maintenancev1.ConditionReasonPending, maintenancev1.ConditionReasonCordon,
-				maintenancev1.ConditionReasonWaitForPodCompletion, maintenancev1.ConditionReasonReady))
+				maintenancev1.ConditionReasonWaitForPodCompletion, maintenancev1.ConditionReasonDraining,
+				maintenancev1.ConditionReasonReady))
 
 			By("Should Uncordon node after NodeMaintenance is deleted")
 			Expect(k8sClient.Delete(testCtx, nm)).ToNot(HaveOccurred())

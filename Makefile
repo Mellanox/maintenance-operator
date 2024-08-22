@@ -276,7 +276,7 @@ catalog-push: ## Push a catalog image.
 ##@ Binary Dependencies download
 
 MOCKERY ?= $(LOCALBIN)/mockery
-MOCKERY_VERSION ?= v2.27.1
+MOCKERY_VERSION ?= v2.44.2
 .PHONY: mockery
 mockery: $(MOCKERY) ## Download mockery locally if necessary.
 $(MOCKERY): | $(LOCALBIN)
