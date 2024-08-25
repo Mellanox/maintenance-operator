@@ -45,6 +45,7 @@ import (
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/scheduler"
 	"github.com/Mellanox/maintenance-operator/internal/version"
+	maintenancewebhook "github.com/Mellanox/maintenance-operator/internal/webhook"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -182,6 +183,13 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaintenanceOperatorConfig")
 		os.Exit(1)
+	}
+
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err = maintenancewebhook.NewNodeMaintenanceWebhook(mgrClient).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "NodeMaintenanceWebhook")
+			os.Exit(1)
+		}
 	}
 	//+kubebuilder:scaffold:builder
 
