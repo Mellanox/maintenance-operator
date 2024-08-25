@@ -64,6 +64,7 @@ type NodeMaintenanceSpec struct {
 	// +kubebuilder:validation:Pattern=`^([a-z0-9A-Z]([-a-z0-9A-Z]*[a-z0-9A-Z])?(\.[a-z0-9A-Z]([-a-z0-9A-Z]*[a-z0-9A-Z])?)*)$`
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:MinLength=2
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	RequestorID string `json:"requestorID"`
 
 	// AdditionalRequestors is a set of additional requestor IDs which are using the same NodeMaintenance
