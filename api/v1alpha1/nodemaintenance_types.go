@@ -76,6 +76,7 @@ type NodeMaintenanceSpec struct {
 
 	// NodeName is The name of the node that maintenance operation will be performed on
 	// creation fails if node obj does not exist (webhook)
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	NodeName string `json:"nodeName"`
 
 	// Cordon if set, marks node as unschedulable during maintenance operation
