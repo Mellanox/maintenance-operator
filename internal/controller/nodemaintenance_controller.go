@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -50,7 +49,6 @@ import (
 )
 
 var (
-	defaultMaxNodeMaintenanceTime   = 1600 * time.Second
 	waitPodCompletionRequeueTime    = 10 * time.Second
 	drainReqeueTime                 = 10 * time.Second
 	additionalRequestorsRequeueTime = 10 * time.Second
@@ -61,51 +59,12 @@ const (
 	ReadyTimeAnnotation = "maintenance.nvidia.com/ready-time"
 )
 
-// NewNodeMaintenanceReconcilerOptions creates new *NodeMaintenanceReconcilerOptions
-func NewNodeMaintenanceReconcilerOptions() *NodeMaintenanceReconcilerOptions {
-	return &NodeMaintenanceReconcilerOptions{
-		pendingMaxNodeMaintenanceTime: defaultMaxNodeMaintenanceTime,
-		maxNodeMaintenanceTime:        defaultMaxNodeMaintenanceTime,
-	}
-}
-
-// NodeMaintenanceReconcilerOptions are options for NodeMaintenanceReconciler where values
-// are stored by external entity and read by NodeMaintenanceReconciler.
-type NodeMaintenanceReconcilerOptions struct {
-	sync.Mutex
-
-	pendingMaxNodeMaintenanceTime time.Duration
-	maxNodeMaintenanceTime        time.Duration
-}
-
-// Store maxUnavailable, maxParallelOperations options for NodeMaintenanceReconciler
-func (nmro *NodeMaintenanceReconcilerOptions) Store(maxNodeMaintenanceTime time.Duration) {
-	nmro.Lock()
-	defer nmro.Unlock()
-
-	nmro.pendingMaxNodeMaintenanceTime = maxNodeMaintenanceTime
-}
-
-// Load loads the last Stored options
-func (nmro *NodeMaintenanceReconcilerOptions) Load() {
-	nmro.Lock()
-	defer nmro.Unlock()
-
-	nmro.maxNodeMaintenanceTime = nmro.pendingMaxNodeMaintenanceTime
-}
-
-// MaxNodeMaintenanceTime returns the last loaded MaxUnavailable option
-func (nmro *NodeMaintenanceReconcilerOptions) MaxNodeMaintenanceTime() time.Duration {
-	return nmro.maxNodeMaintenanceTime
-}
-
 // NodeMaintenanceReconciler reconciles a NodeMaintenance object
 type NodeMaintenanceReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
 	EventRecorder record.EventRecorder
 
-	Options                  *NodeMaintenanceReconcilerOptions
 	CordonHandler            cordon.Handler
 	WaitPodCompletionHandler podcompletion.Handler
 	DrainManager             drain.Manager
@@ -127,12 +86,8 @@ type NodeMaintenanceReconciler struct {
 func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLog := log.FromContext(ctx)
 	reqLog.Info("got request", "name", req.NamespacedName)
-	var err error
-
-	// load any stored options
-	r.Options.Load()
-	reqLog.Info("loaded options", "maxNodeMaintenanceTime", r.Options.MaxNodeMaintenanceTime())
 	reqLog.Info("outstanding drain requests", "num", len(r.DrainManager.ListRequests()))
+	var err error
 
 	// get NodeMaintenance object
 	nm := &maintenancev1.NodeMaintenance{}

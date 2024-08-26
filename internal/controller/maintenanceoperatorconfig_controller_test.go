@@ -52,10 +52,10 @@ var _ = Describe("MaintenanceOperatorConfig Controller", func() {
 		// create reconciler
 		By("create MaintenanceOperatorConfigReconciler")
 		reconciler = &MaintenanceOperatorConfigReconciler{
-			Client:                          k8sClient,
-			Scheme:                          k8sClient.Scheme(),
-			SchedulerReconcierOptions:       NewNodeMaintenanceSchedulerReconcilerOptions(),
-			NodeMaintenanceReconcierOptions: NewNodeMaintenanceReconcilerOptions(),
+			Client:                    k8sClient,
+			Scheme:                    k8sClient.Scheme(),
+			SchedulerReconcierOptions: NewNodeMaintenanceSchedulerReconcilerOptions(),
+			GarbageCollectorOptions:   NewGarbageCollectorOptions(),
 		}
 
 		// setup reconciler with manager
@@ -94,10 +94,10 @@ var _ = Describe("MaintenanceOperatorConfig Controller", func() {
 
 		Consistently(func(g Gomega) {
 			reconciler.SchedulerReconcierOptions.Load()
-			reconciler.NodeMaintenanceReconcierOptions.Load()
+			reconciler.GarbageCollectorOptions.Load()
 			g.Expect(reconciler.SchedulerReconcierOptions.MaxParallelOperations()).To(Equal(&intstr.IntOrString{Type: intstr.Int, IntVal: 1}))
 			g.Expect(reconciler.SchedulerReconcierOptions.MaxUnavailable()).To(BeNil())
-			g.Expect(reconciler.NodeMaintenanceReconcierOptions.MaxNodeMaintenanceTime()).To(Equal(defaultMaxNodeMaintenanceTime))
+			g.Expect(reconciler.GarbageCollectorOptions.MaxNodeMaintenanceTime()).To(Equal(defaultMaxNodeMaintenanceTime))
 		}).ProbeEvery(100 * time.Millisecond).Within(time.Second).Should(Succeed())
 	})
 
@@ -120,10 +120,10 @@ var _ = Describe("MaintenanceOperatorConfig Controller", func() {
 		By("check MaintenanceOperatorConfig values were updated")
 		Eventually(func(g Gomega) {
 			reconciler.SchedulerReconcierOptions.Load()
-			reconciler.NodeMaintenanceReconcierOptions.Load()
+			reconciler.GarbageCollectorOptions.Load()
 			g.Expect(reconciler.SchedulerReconcierOptions.MaxParallelOperations()).To(Equal(oc.Spec.MaxParallelOperations))
 			g.Expect(reconciler.SchedulerReconcierOptions.MaxUnavailable()).To(Equal(oc.Spec.MaxUnavailable))
-			g.Expect(reconciler.NodeMaintenanceReconcierOptions.MaxNodeMaintenanceTime()).
+			g.Expect(reconciler.GarbageCollectorOptions.MaxNodeMaintenanceTime()).
 				To(Equal(time.Second * time.Duration(oc.Spec.MaxNodeMaintenanceTimeSeconds)))
 			g.Expect(operatorlog.GetLogLevel()).To(BeEquivalentTo(oc.Spec.LogLevel))
 		}).ProbeEvery(100 * time.Millisecond).Within(time.Second).Should(Succeed())
@@ -137,10 +137,10 @@ var _ = Describe("MaintenanceOperatorConfig Controller", func() {
 		By("check MaintenanceOperatorConfig values were updated")
 		Eventually(func(g Gomega) {
 			reconciler.SchedulerReconcierOptions.Load()
-			reconciler.NodeMaintenanceReconcierOptions.Load()
+			reconciler.GarbageCollectorOptions.Load()
 			g.Expect(reconciler.SchedulerReconcierOptions.MaxParallelOperations()).To(Equal(oc.Spec.MaxParallelOperations))
 			g.Expect(reconciler.SchedulerReconcierOptions.MaxUnavailable()).To(Equal(oc.Spec.MaxUnavailable))
-			g.Expect(reconciler.NodeMaintenanceReconcierOptions.MaxNodeMaintenanceTime()).
+			g.Expect(reconciler.GarbageCollectorOptions.MaxNodeMaintenanceTime()).
 				To(Equal(time.Second * time.Duration(oc.Spec.MaxNodeMaintenanceTimeSeconds)))
 			g.Expect(operatorlog.GetLogLevel()).To(BeEquivalentTo(oc.Spec.LogLevel))
 		}).ProbeEvery(100 * time.Millisecond).Within(time.Second).Should(Succeed())
