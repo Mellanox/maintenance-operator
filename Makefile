@@ -291,7 +291,7 @@ $(KUSTOMIZE): $(LOCALBIN)
 		echo "$(LOCALBIN)/kustomize version is not expected $(KUSTOMIZE_VERSION). Removing it before installing."; \
 		rm -rf $(LOCALBIN)/kustomize; \
 	fi
-	test -s $(LOCALBIN)/kustomize || GOBIN=$(LOCALBIN) GO111MODULE=on go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+	test -s $(LOCALBIN)/kustomize || GOBIN=$(LOCALBIN) go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
 
 .PHONY: controller-gen
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
@@ -367,6 +367,17 @@ $(MINIKUBE): | $(LOCALBIN)
 		chmod +x $(MINIKUBE);\
 	}
 
+HELM := $(abspath $(LOCALBIN)/helm)
+.PHONY: helm
+helm: $(HELM) ## Download helm (last release) locally if necessary.
+$(HELM): | $(LOCALBIN)
+	@{ \
+		curl -fsSL -o $(LOCALBIN)/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 && \
+		chmod 700 $(LOCALBIN)/get_helm.sh && \
+		HELM_INSTALL_DIR=$(LOCALBIN) USE_SUDO=false $(LOCALBIN)/get_helm.sh && \
+		rm -f $(LOCALBIN)/get_helm.sh; \
+	}
+
 ##@ Dev
 
 TEST_CLUSTER_NAME = mn-op
@@ -376,12 +387,14 @@ TEST_CLUSTER_NAME = mn-op
 SKAFFOLD_REGISTRY ?= localhost:5000
 
 .PHONY: dev-env
-dev-env: $(MINIKUBE) ## Create minikube cluster for dev and tests
+dev-env: | $(MINIKUBE) $(HELM) ## Create minikube cluster for dev and tests
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) $(CURDIR)/hack/scripts/setup_minikube.sh
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
 
-.PHONY: dev-env
-dev-env-multinode: $(MINIKUBE) ## Create minikube cluster for dev and tests
+.PHONY: dev-env-multinode
+dev-env-multinode: | $(MINIKUBE) $(HELM) ## Create minikube cluster for dev and tests
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) NUM_NODES=4 USE_MINIKUBE_DOCKER=false $(CURDIR)/hack/scripts/setup_minikube.sh
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
 
 .PHONY: clean-dev-env
 clean-dev-env: $(MINIKUBE) ## Teardown minikube cluster for dev and tests
