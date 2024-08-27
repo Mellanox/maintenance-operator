@@ -17,15 +17,18 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -73,7 +76,7 @@ type NodeMaintenanceReconciler struct {
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=events,verbs=create
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;update;patch
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;watch;list;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create;get;list;update;patch;delete
@@ -153,8 +156,8 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if err != nil {
 			reqLog.Error(err, "failed to handle drain state for NodeMaintenance object")
 		}
-	case maintenancev1.ConditionReasonReady:
-		res, err = r.handleReadyState(ctx, reqLog, nm, node)
+	case maintenancev1.ConditionReasonReady, maintenancev1.ConditionReasonRequestorFailed:
+		res, err = r.handleTerminalState(ctx, reqLog, nm, node)
 		if err != nil {
 			reqLog.Error(err, "failed to handle Ready state for NodeMaintenance object")
 		}
@@ -461,8 +464,8 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 	return nil
 }
 
-func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
-	reqLog.Info("Handle Ready NodeMaintenance")
+func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
+	reqLog.Info("Handle Ready/RequestorFailed NodeMaintenance")
 	var err error
 	var res ctrl.Result
 
@@ -493,10 +496,36 @@ func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog
 	// set ready-time annotation if not present on not set
 	if nm.Annotations[ReadyTimeAnnotation] == "" {
 		metav1.SetMetaDataAnnotation(&nm.ObjectMeta, ReadyTimeAnnotation, time.Now().UTC().Format(time.RFC3339))
-		err := r.Update(ctx, nm)
+		err = r.Update(ctx, nm)
 		if err != nil {
 			return res, err
 		}
+	}
+
+	// check RequestorFailed condition
+	currentReason := k8sutils.GetReadyConditionReason(nm)
+	conditionChanged := false
+	cond := meta.FindStatusCondition(nm.Status.Conditions, maintenancev1.ConditionTypeRequestorFailed)
+	if cond != nil && cond.Status == metav1.ConditionTrue {
+		// set Ready condition to RequestorFailed reason if not already set
+		if currentReason == maintenancev1.ConditionReasonReady {
+			err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonRequestorFailed)
+			conditionChanged = true
+		}
+	} else {
+		// set Ready condition to Ready reason if not already set
+		if currentReason == maintenancev1.ConditionReasonRequestorFailed {
+			err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonReady)
+			conditionChanged = true
+		}
+	}
+	if err != nil {
+		return res, err
+	}
+
+	if conditionChanged {
+		r.EventRecorder.Event(
+			nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, k8sutils.GetReadyConditionReason(nm))
 	}
 
 	return res, nil
@@ -507,32 +536,32 @@ func (r *NodeMaintenanceReconciler) SetupWithManager(mgr ctrl.Manager, log logr.
 	r.EventRecorder = mgr.GetEventRecorderFor("nodemaintenancereconciler")
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&maintenancev1.NodeMaintenance{}, builder.WithPredicates(NewReadyConditionChangedPredicate(log))).
+		For(&maintenancev1.NodeMaintenance{}, builder.WithPredicates(NewConditionChangedPredicate(log))).
 		Complete(r)
 }
 
-// NewReadyConditionChangedPredicate creates a new ReadyConditionChangedPredicate
-func NewReadyConditionChangedPredicate(log logr.Logger) ReadyConditionChangedPredicate {
-	return ReadyConditionChangedPredicate{
+// NewConditionChangedPredicate creates a new ConditionChangedPredicate
+func NewConditionChangedPredicate(log logr.Logger) ConditionChangedPredicate {
+	return ConditionChangedPredicate{
 		Funcs: predicate.Funcs{},
 		log:   log,
 	}
 }
 
-// ReadyConditionChangedPredicate will trigger enqueue of Event for reconcile in the following cases:
-// 1. A change in NodeMaintenance Ready Condition
+// ConditionChangedPredicate will trigger enqueue of Event for reconcile in the following cases:
+// 1. A change in NodeMaintenance Conditions
 // 2. Update to the object occurred and deletion timestamp is set
 // 3. NodeMaintenance created
 // 4. NodeMaintenance deleted
 // 5. generic event received
-type ReadyConditionChangedPredicate struct {
+type ConditionChangedPredicate struct {
 	predicate.Funcs
 
 	log logr.Logger
 }
 
 // Update implements Predicate.
-func (p ReadyConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.Object]) bool {
+func (p ConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.Object]) bool {
 	if e.ObjectOld == nil {
 		p.log.Error(nil, "old object is nil in update event, ignoring event.")
 		return false
@@ -554,15 +583,22 @@ func (p ReadyConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.O
 		return false
 	}
 
-	oldRCR := k8sutils.GetReadyConditionReason(oldO)
-	newRCR := k8sutils.GetReadyConditionReason(newO)
+	cmpByType := func(a, b metav1.Condition) int {
+		return cmp.Compare(a.Type, b.Type)
+	}
 
-	process := oldRCR != newRCR || !newO.GetDeletionTimestamp().IsZero()
+	// sort old and new obj.Status.Conditions so they can be compared using DeepEqual
+	slices.SortFunc(oldO.Status.Conditions, cmpByType)
+	slices.SortFunc(newO.Status.Conditions, cmpByType)
+
+	condChanged := !reflect.DeepEqual(oldO.Status.Conditions, newO.Status.Conditions)
+	deleting := !newO.GetDeletionTimestamp().IsZero()
+	process := condChanged || deleting
 
 	p.log.V(operatorlog.DebugLevel).Info("Update event for NodeMaintenance",
 		"name", newO.Name, "namespace", newO.Namespace,
-		"condition-changed", oldRCR != newRCR, "old", oldRCR, "new", newRCR,
-		"deleting", !newO.GetDeletionTimestamp().IsZero(), "process", process)
+		"condition-changed", condChanged,
+		"deleting", deleting, "process", process)
 
 	return process
 }

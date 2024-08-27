@@ -27,6 +27,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].reason
       name: Phase
       type: string
+    - jsonPath: .status.conditions[?(@.type=='Failed')].reason
+      name: Failed
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
