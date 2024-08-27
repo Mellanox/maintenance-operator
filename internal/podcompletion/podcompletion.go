@@ -63,9 +63,8 @@ func (p *podCompletionHandler) HandlePodCompletion(ctx context.Context, reqLog l
 	var err error
 	var startTime time.Time
 
-	if !metav1.HasAnnotation(nm.ObjectMeta, WaitForPodCompletionStartAnnot) ||
-		nm.Annotations[WaitForPodCompletionStartAnnot] == "" {
-		// set waitForPodCompletion time annotation
+	if nm.Annotations[WaitForPodCompletionStartAnnot] == "" {
+		// set waitForPodCompletion time annotation if not set or empty
 		startTime = time.Now().UTC()
 		metav1.SetMetaDataAnnotation(&nm.ObjectMeta, WaitForPodCompletionStartAnnot, startTime.Format(time.RFC3339))
 		err = p.k8sclient.Update(ctx, nm)
