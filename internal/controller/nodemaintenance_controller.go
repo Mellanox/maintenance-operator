@@ -490,9 +490,8 @@ func (r *NodeMaintenanceReconciler) handleReadyState(ctx context.Context, reqLog
 		return res, err
 	}
 
-	// set ready-time annotation
-	if !metav1.HasAnnotation(nm.ObjectMeta, ReadyTimeAnnotation) ||
-		nm.Annotations[ReadyTimeAnnotation] == "" {
+	// set ready-time annotation if not present on not set
+	if nm.Annotations[ReadyTimeAnnotation] == "" {
 		metav1.SetMetaDataAnnotation(&nm.ObjectMeta, ReadyTimeAnnotation, time.Now().UTC().Format(time.RFC3339))
 		err := r.Update(ctx, nm)
 		if err != nil {

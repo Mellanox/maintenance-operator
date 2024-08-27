@@ -77,7 +77,6 @@ var _ = Describe("podcompletion tests", func() {
 
 			Expect(fakeClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).ToNot(HaveOccurred())
 			Expect(nm.Status.WaitForCompletion).To(Equal([]string{"default/test-pod"}))
-			Expect(metav1.HasAnnotation(nm.ObjectMeta, podcompletion.WaitForPodCompletionStartAnnot)).To(BeTrue())
 			t1, e := time.Parse(time.RFC3339, nm.Annotations[podcompletion.WaitForPodCompletionStartAnnot])
 			Expect(e).ToNot(HaveOccurred())
 
