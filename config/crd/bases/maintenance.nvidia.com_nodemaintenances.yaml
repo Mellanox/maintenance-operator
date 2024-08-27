@@ -116,6 +116,9 @@ spec:
                   NodeName is The name of the node that maintenance operation will be performed on
                   creation fails if node obj does not exist (webhook)
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               requestorID:
                 description: |-
                   RequestorID MUST follow domain name notation format (https://tools.ietf.org/html/rfc1035#section-2.3.1)
@@ -127,6 +130,9 @@ spec:
                 minLength: 2
                 pattern: ^([a-z0-9A-Z]([-a-z0-9A-Z]*[a-z0-9A-Z])?(\.[a-z0-9A-Z]([-a-z0-9A-Z]*[a-z0-9A-Z])?)*)$
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               waitForPodCompletion:
                 description: |-
                   WaitForPodCompletion specifies pods via selector to wait for completion before performing drain operation

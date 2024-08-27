@@ -64,6 +64,7 @@ type NodeMaintenanceSpec struct {
 	// +kubebuilder:validation:Pattern=`^([a-z0-9A-Z]([-a-z0-9A-Z]*[a-z0-9A-Z])?(\.[a-z0-9A-Z]([-a-z0-9A-Z]*[a-z0-9A-Z])?)*)$`
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:MinLength=2
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	RequestorID string `json:"requestorID"`
 
 	// AdditionalRequestors is a set of additional requestor IDs which are using the same NodeMaintenance
@@ -75,6 +76,7 @@ type NodeMaintenanceSpec struct {
 
 	// NodeName is The name of the node that maintenance operation will be performed on
 	// creation fails if node obj does not exist (webhook)
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	NodeName string `json:"nodeName"`
 
 	// Cordon if set, marks node as unschedulable during maintenance operation
