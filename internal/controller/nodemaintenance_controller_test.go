@@ -47,7 +47,6 @@ var _ = Describe("NodeMaintenance Controller", func() {
 		var podObjectsToCleanup []*corev1.Pod
 
 		var reconciler *NodeMaintenanceReconciler
-		var options *NodeMaintenanceReconcilerOptions
 
 		// test context, TODO(adrianc): use ginkgo spec context
 		var testCtx context.Context
@@ -72,11 +71,9 @@ var _ = Describe("NodeMaintenance Controller", func() {
 
 			// create reconciler
 			By("create NodeMaintenanceReconciler")
-			options = NewNodeMaintenanceReconcilerOptions()
 			reconciler = &NodeMaintenanceReconciler{
 				Client:                   k8sClient,
 				Scheme:                   k8sClient.Scheme(),
-				Options:                  options,
 				CordonHandler:            cordon.NewCordonHandler(k8sClient, k8sInterface),
 				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(k8sClient),
 				DrainManager: drain.NewManager(ctrllog.Log.WithName("DrainManager"),
@@ -278,20 +275,6 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			err := k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)
 			Expect(err).To(HaveOccurred())
 			Expect(k8serrors.IsNotFound(err)).To(BeTrue())
-		})
-	})
-
-	Context("UnitTests", func() {
-		Context("NodeMaintenanceReconcilerOptions", func() {
-			It("Works", func() {
-				options := NewNodeMaintenanceReconcilerOptions()
-				Expect(options.MaxNodeMaintenanceTime()).To(Equal(defaultMaxNodeMaintenanceTime))
-				newTime := 300 * time.Second
-				options.Store(newTime)
-				Expect(options.MaxNodeMaintenanceTime()).To(Equal(defaultMaxNodeMaintenanceTime))
-				options.Load()
-				Expect(options.MaxNodeMaintenanceTime()).To(Equal(newTime))
-			})
 		})
 	})
 })

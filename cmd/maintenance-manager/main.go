@@ -149,16 +149,22 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 	mgrClient := mgr.GetClient()
 
-	nmrOptions := controller.NewNodeMaintenanceReconcilerOptions()
 	if err = (&controller.NodeMaintenanceReconciler{
 		Client:                   mgrClient,
 		Scheme:                   mgr.GetScheme(),
-		Options:                  nmrOptions,
 		CordonHandler:            cordon.NewCordonHandler(mgrClient, k8sInterface),
 		WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(mgrClient),
 		DrainManager:             drain.NewManager(ctrl.Log.WithName("DrainManager"), ctx, k8sInterface),
 	}).SetupWithManager(mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
+		os.Exit(1)
+	}
+
+	gcOptions := controller.NewGarbageCollectorOptions()
+	gcLog := ctrl.Log.WithName("NodeMaintenanceGarbageCollector")
+	if err = controller.NewNodeMaintenanceGarbageCollector(
+		mgrClient, gcOptions, gcLog).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenanceGarbageCollector")
 		os.Exit(1)
 	}
 
@@ -176,10 +182,10 @@ func main() {
 	}
 
 	if err = (&controller.MaintenanceOperatorConfigReconciler{
-		Client:                          mgrClient,
-		Scheme:                          mgr.GetScheme(),
-		NodeMaintenanceReconcierOptions: nmrOptions,
-		SchedulerReconcierOptions:       nmsrOptions,
+		Client:                    mgrClient,
+		Scheme:                    mgr.GetScheme(),
+		GarbageCollectorOptions:   gcOptions,
+		SchedulerReconcierOptions: nmsrOptions,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MaintenanceOperatorConfig")
 		os.Exit(1)

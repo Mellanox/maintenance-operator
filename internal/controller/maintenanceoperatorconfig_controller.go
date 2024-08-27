@@ -40,8 +40,8 @@ type MaintenanceOperatorConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	SchedulerReconcierOptions       *NodeMaintenanceSchedulerReconcilerOptions
-	NodeMaintenanceReconcierOptions *NodeMaintenanceReconcilerOptions
+	SchedulerReconcierOptions *NodeMaintenanceSchedulerReconcilerOptions
+	GarbageCollectorOptions   *GarbageCollectorOptions
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=maintenanceoperatorconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -75,7 +75,7 @@ func (r *MaintenanceOperatorConfigReconciler) Reconcile(ctx context.Context, req
 		"MaxParallelOperations", cfg.Spec.MaxParallelOperations)
 	r.SchedulerReconcierOptions.Store(cfg.Spec.MaxUnavailable, cfg.Spec.MaxParallelOperations)
 	reqLog.Info("store nodeMaintenance reconciler options", "MaxNodeMaintenanceTimeSeconds", cfg.Spec.MaxNodeMaintenanceTimeSeconds)
-	r.NodeMaintenanceReconcierOptions.Store(time.Second * time.Duration(cfg.Spec.MaxNodeMaintenanceTimeSeconds))
+	r.GarbageCollectorOptions.Store(time.Second * time.Duration(cfg.Spec.MaxNodeMaintenanceTimeSeconds))
 
 	// handle log level
 	reqLog.Info("setting operator log level", "LogLevel", cfg.Spec.LogLevel)
