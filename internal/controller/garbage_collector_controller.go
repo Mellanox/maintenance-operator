@@ -102,8 +102,10 @@ func (r *NodeMaintenanceGarbageCollector) SetupWithManager(mgr ctrl.Manager) err
 // Reconcile collects garabage once
 func (r *NodeMaintenanceGarbageCollector) Reconcile(ctx context.Context) error {
 	r.log.Info("periodic reconcile start")
+	defer r.log.Info("periodic reconcile end")
+
 	r.options.Load()
-	r.log.V(log.DebugLevel).Info("loaded options", "maxNodeMaintenanceTime", r.options.MaxNodeMaintenanceTime())
+	r.log.Info("loaded options", "maxNodeMaintenanceTime", r.options.MaxNodeMaintenanceTime())
 
 	mnl := &maintenancev1.NodeMaintenanceList{}
 	err := r.List(ctx, mnl)
@@ -117,7 +119,7 @@ func (r *NodeMaintenanceGarbageCollector) Reconcile(ctx context.Context) error {
 		nmLog := r.log.WithValues("namespace", nm.Namespace, "name", nm.Name)
 
 		if nm.Annotations[GarbageCollectIgnoreAnnotation] == "true" {
-			nmLog.Info("skipping NodeMaintenance due to ignore annotation")
+			nmLog.V(log.DebugLevel).Info("skipping NodeMaintenance due to ignore annotation")
 			continue
 		}
 
@@ -141,7 +143,6 @@ func (r *NodeMaintenanceGarbageCollector) Reconcile(ctx context.Context) error {
 		}
 	}
 
-	r.log.Info("periodic reconcile end")
 	return nil
 }
 

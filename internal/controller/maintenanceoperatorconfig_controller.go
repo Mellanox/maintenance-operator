@@ -55,7 +55,9 @@ type MaintenanceOperatorConfigReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *MaintenanceOperatorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLog := log.FromContext(ctx)
-	reqLog.Info("got request", "name", req.NamespacedName)
+	reqLog.Info("Reconcile request")
+	defer reqLog.Info("Reconcile request end")
+
 	if req.Name != defaultMaintenanceOperatorConifgName || req.Namespace != vars.OperatorNamespace {
 		reqLog.Info("request for non default MaintenanceOperatorConfig, ignoring")
 		return ctrl.Result{}, nil
