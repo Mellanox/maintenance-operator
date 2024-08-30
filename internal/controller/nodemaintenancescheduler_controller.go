@@ -43,6 +43,7 @@ import (
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
+	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
 	"github.com/Mellanox/maintenance-operator/internal/scheduler"
 	"github.com/Mellanox/maintenance-operator/internal/utils"
 )
@@ -130,6 +131,7 @@ type NodeMaintenanceSchedulerReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.Log.Info("run periodic scheduler loop")
+	defer r.Log.Info("run periodic scheduler loop end")
 	// load any stored options
 	r.Options.Load()
 	r.Log.Info("loaded options", "maxUnavailable",
@@ -187,7 +189,6 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 		go func() {
 			defer wg.Done()
 			// update status
-			// TODO(adrianc): use Patch?
 			err := k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonScheduled)
 			if err != nil {
 				r.Log.Error(err, "failed to update condition for NodeMaintenance", "name", nm.Name, "namespace", nm.Namespace)
@@ -239,8 +240,8 @@ func (r *NodeMaintenanceSchedulerReconciler) preSchedule(nodes []*corev1.Node, n
 			nodesUnderMaintenance.Insert(nm.Spec.NodeName)
 		}
 	}
-	// TODO(adrianc): print at debug
-	r.Log.Info("nodesUnderMaintenance", "total", nodesUnderMaintenance.UnsortedList())
+
+	r.Log.V(operatorlog.DebugLevel).Info("nodesUnderMaintenance", "value", nodesUnderMaintenance.UnsortedList())
 
 	// nodesPendingMaintenance are nodes that have one(or more) NodeMaintenance request in Pending state and their respective node exists
 	nodesPendingMaintenance := sets.New[string]()
@@ -250,21 +251,18 @@ func (r *NodeMaintenanceSchedulerReconciler) preSchedule(nodes []*corev1.Node, n
 			nodesPendingMaintenance.Insert(nm.Spec.NodeName)
 		}
 	}
-	// TODO(adrianc): print at debug
-	r.Log.Info("nodesPendingMaintenance", "total", nodesPendingMaintenance.UnsortedList())
+
+	r.Log.V(operatorlog.DebugLevel).Info("nodesPendingMaintenance", "value", nodesPendingMaintenance.UnsortedList())
 
 	// nodesUnavailable are the currently unavailable nodes in the cluster
 	nodesUnavailable := sets.New(r.getCurrentUnavailableNodes(nodes)...)
-	// TODO(adrianc): print at debug
-	r.Log.Info("nodesUnavailable", "total", nodesUnavailable.UnsortedList())
+	r.Log.V(operatorlog.DebugLevel).Info("nodesUnavailable", "value", nodesUnavailable.UnsortedList())
 
 	// totalNodeUnavailable is the union of nodesUnavailable and nodesUnderMaintenance i.e nodes that are and will be (at some point)
 	// unavailable.
 	totalNodeUnavailable := nodesUnavailable.Union(nodesUnderMaintenance)
-	// TODO(adrianc): print at debug
-	r.Log.Info("totalNodeUnavailable", "total", totalNodeUnavailable.UnsortedList())
+	r.Log.V(operatorlog.DebugLevel).Info("totalNodeUnavailable", "total", totalNodeUnavailable.UnsortedList())
 
-	// TODO(adrianc): make this threadsafe once we allow updates for maxUnavailabe and maxParallelOperations via maintenanceOperatorConfig controller
 	maxUnavailable, err := r.getMaxUnavailableNodes(len(nodes))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to calculate max unavailable nodes allowed in the cluster")
@@ -295,13 +293,24 @@ func (r *NodeMaintenanceSchedulerReconciler) preSchedule(nodes []*corev1.Node, n
 		}
 	}
 
-	r.Log.Info("stats:", "maxUnavailable", maxUnavailable)
-	r.Log.Info("stats:", "maxOperations", maxOperations)
-	r.Log.Info("stats:", "nodesPendingMaintenance", len(nodesPendingMaintenance))
-	r.Log.Info("stats:", "candidateNodes", len(candidateNodes))
-	r.Log.Info("stats:", "availableSlots", availableSlots)
-	r.Log.Info("stats:", "canBecomeUnavailable", canBecomeUnavailable)
-	r.Log.Info("stats:", "candidateMaintenance", len(candidateMaintenance))
+	r.Log.Info("stats:",
+		"maxUnavailable", maxUnavailable,
+		"maxOperations", maxOperations,
+		"nodesPendingMaintenance", len(nodesPendingMaintenance),
+		"candidateNodes", len(candidateNodes),
+		"availableSlots", availableSlots,
+		"canBecomeUnavailable", canBecomeUnavailable,
+		"candidateMaintenance", len(candidateMaintenance),
+	)
+
+	r.Log.V(operatorlog.DebugLevel).Info("candidateNodes", "value", candidateNodes.UnsortedList())
+	if r.Log.GetV() == operatorlog.DebugLevel {
+		candidateMaintenanceNames := make([]string, 0, len(candidateMaintenance))
+		for _, nm := range candidateMaintenance {
+			candidateMaintenanceNames = append(candidateMaintenanceNames, nm.CanonicalString())
+		}
+		r.Log.V(operatorlog.DebugLevel).Info("candidateMaintenance", "value", candidateMaintenanceNames)
+	}
 
 	return &scheduler.SchedulerContext{
 		AvailableSlots:       availableSlots,

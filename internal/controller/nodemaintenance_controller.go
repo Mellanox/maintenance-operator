@@ -88,13 +88,15 @@ type NodeMaintenanceReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLog := log.FromContext(ctx)
-	reqLog.Info("got request", "name", req.NamespacedName)
-	reqLog.Info("outstanding drain requests", "num", len(r.DrainManager.ListRequests()))
+	reqLog.Info("reconcile NodeMaintenance request")
+	defer reqLog.Info("reconcile NodeMaintenance request end")
+	reqLog.V(operatorlog.DebugLevel).Info("outstanding drain requests", "num", len(r.DrainManager.ListRequests()))
+
 	var err error
 
 	// get NodeMaintenance object
 	nm := &maintenancev1.NodeMaintenance{}
-	if err = r.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Name}, nm); err != nil {
+	if err = r.Get(ctx, req.NamespacedName, nm); err != nil {
 		if k8serrors.IsNotFound(err) {
 			reqLog.Info("NodeMaintenance object not found, nothing to do.")
 			return reconcile.Result{}, nil
@@ -168,10 +170,10 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 // handleFinalizerRemoval handles the removal of node maintenance finalizer
 func (r *NodeMaintenanceReconciler) handleFinalizerRemoval(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
-	reqLog.Info("removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+	reqLog.Info("removing maintenance finalizer")
 	err := k8sutils.RemoveFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
 	if err != nil {
-		reqLog.Error(err, "failed to remove finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+		reqLog.Error(err, "failed to remove finalizer for NodeMaintenance")
 	}
 	return err
 }
@@ -205,12 +207,12 @@ func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, re
 		// conditionally add finalizer
 		err = k8sutils.AddFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
 		if err != nil {
-			reqLog.Error(err, "failed to set finalizer for NodeMaintenance", "namespace", nm.Namespace, "name", nm.Name)
+			reqLog.Error(err, "failed to set finalizer for NodeMaintenance")
 			return err
 		}
 	} else {
 		// object is being deleted, remove finalizer if exists and return
-		reqLog.Info("NodeMaintenance object is deleting", "namespace", nm.Namespace, "name", nm.Name)
+		reqLog.Info("NodeMaintenance object is deleting")
 		return r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
@@ -299,7 +301,7 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 				reqLog.Info("waiting for pods to finish", "pods", waitingForPods)
 				return ctrl.Result{Requeue: true, RequeueAfter: waitPodCompletionRequeueTime}, nil
 			}
-		} else if err != nil && !errors.Is(err, podcompletion.ErrPodCompletionTimeout) {
+		} else if !errors.Is(err, podcompletion.ErrPodCompletionTimeout) {
 			reqLog.Error(err, "failed to handle waitPodCompletion")
 			return res, err
 		}
@@ -348,7 +350,7 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 		// TODO(adrianc): unpause MCP in OCP when support is added.
 
 		// remove finalizer if exists and return
-		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer", "namespace", nm.Namespace, "name", nm.Name)
+		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer")
 		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
 		return res, err
 	}
@@ -479,7 +481,7 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 		}
 
 		if nm.Spec.Cordon {
-			reqLog.Info("handle uncordon of node, ", "node", node.Name)
+			reqLog.Info("handle uncordon of node", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
 			if err != nil {
 				return res, err
@@ -562,6 +564,8 @@ type ConditionChangedPredicate struct {
 
 // Update implements Predicate.
 func (p ConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.Object]) bool {
+	p.log.V(operatorlog.DebugLevel).Info("ConditionChangedPredicate Update")
+
 	if e.ObjectOld == nil {
 		p.log.Error(nil, "old object is nil in update event, ignoring event.")
 		return false
@@ -593,12 +597,12 @@ func (p ConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.Object
 
 	condChanged := !reflect.DeepEqual(oldO.Status.Conditions, newO.Status.Conditions)
 	deleting := !newO.GetDeletionTimestamp().IsZero()
-	process := condChanged || deleting
+	enqueue := condChanged || deleting
 
-	p.log.V(operatorlog.DebugLevel).Info("Update event for NodeMaintenance",
+	p.log.V(operatorlog.DebugLevel).Info("update event for NodeMaintenance",
 		"name", newO.Name, "namespace", newO.Namespace,
 		"condition-changed", condChanged,
-		"deleting", deleting, "process", process)
+		"deleting", deleting, "enqueue-request", enqueue)
 
-	return process
+	return enqueue
 }

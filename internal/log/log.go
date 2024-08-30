@@ -39,7 +39,7 @@ var Options = &zap.Options{
 	Level:           zzap.NewAtomicLevelAt(zapcore.InfoLevel),
 	// log caller (file and line number) in "caller" key
 	EncoderConfigOptions: []zap.EncoderConfigOption{func(ec *zapcore.EncoderConfig) { ec.CallerKey = "caller" }},
-	ZapOpts:              []zzap.Option{zzap.AddCaller(), zzap.AddCallerSkip(1)},
+	ZapOpts:              []zzap.Option{zzap.AddCaller()},
 }
 
 // BindFlags binds controller-runtime logging flags to provided flag Set

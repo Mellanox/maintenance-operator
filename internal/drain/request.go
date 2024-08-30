@@ -94,7 +94,7 @@ func (dr *drainRequestImpl) StartDrain() {
 	}
 	dr.started = true
 
-	dr.log.V(log.DebugLevel).Info("Starting Drain")
+	dr.log.V(log.DebugLevel).Info("Starting Drain", "node", dr.drainSpec.NodeName)
 	dr.wg.Add(1)
 	go func() {
 		defer dr.wg.Done()

@@ -63,7 +63,7 @@ const (
 
 const (
 	// MaintenanceFinalizerName is the name of the finalizer being used by NodeMaintenance controllers
-	MaintenanceFinalizerName = "maintenance.finalizers.nvidia.com"
+	MaintenanceFinalizerName = "maintenance.nvidia.com/finalizer"
 )
 
 // NodeMaintenanceSpec defines the desired state of NodeMaintenance

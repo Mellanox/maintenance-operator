@@ -58,13 +58,13 @@ var _ webhook.CustomValidator = &NodeMaintenanceWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (r *NodeMaintenanceWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	log := ctrl.LoggerFrom(ctx)
+	log.Info("validate create")
 
 	nm, ok := obj.(*maintenancev1.NodeMaintenance)
 	if !ok {
 		log.Error(nil, "failed to convert runtime object to NodeMaintenance")
 		return nil, nil
 	}
-	log.Info("validate create", "namespace", nm.Namespace, "name", nm.Name)
 
 	// Validate Node exists for NodeMaintenance
 	node := &corev1.Node{}
