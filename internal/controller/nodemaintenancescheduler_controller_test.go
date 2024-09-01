@@ -26,8 +26,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	kptr "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -65,8 +67,9 @@ var _ = Describe("NodeMaintenanceScheduler Controller", func() {
 			By("create controller manager")
 			var err error
 			mgr, err = ctrl.NewManager(cfg, ctrl.Options{
-				Scheme:  k8sClient.Scheme(),
-				Metrics: server.Options{BindAddress: "0"},
+				Scheme:     k8sClient.Scheme(),
+				Metrics:    server.Options{BindAddress: "0"},
+				Controller: ctrlconfig.Controller{SkipNameValidation: kptr.To(true)},
 			})
 			Expect(err).ToNot(HaveOccurred())
 

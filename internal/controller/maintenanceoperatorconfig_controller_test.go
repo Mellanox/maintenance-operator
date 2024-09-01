@@ -25,7 +25,9 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	kptr "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -44,8 +46,9 @@ var _ = Describe("MaintenanceOperatorConfig Controller", func() {
 		// create controller manager
 		By("create controller manager")
 		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-			Scheme:  k8sClient.Scheme(),
-			Metrics: metricsserver.Options{BindAddress: "0"},
+			Scheme:     k8sClient.Scheme(),
+			Metrics:    metricsserver.Options{BindAddress: "0"},
+			Controller: ctrlconfig.Controller{SkipNameValidation: kptr.To(true)},
 		})
 		Expect(err).ToNot(HaveOccurred())
 
