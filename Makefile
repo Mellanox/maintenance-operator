@@ -221,6 +221,18 @@ golangci-lint:
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell dirname $(GOLANGCI_LINT)) $(GOLANGCI_LINT_VERSION) ;\
 	}
 
+GEN_CRD_API_REFERENCE_DOCS = $(LOCALBIN)/gen-crd-api-reference-docs
+.PHONY: gen-crd-api-reference-docs ## Download gen-crd-api-reference-docs locally if necessary
+gen-crd-api-reference-docs: $(GEN_CRD_API_REFERENCE_DOCS)
+$(GEN_CRD_API_REFERENCE_DOCS): | $(LOCALBIN)
+	@ GOBIN=$(LOCALBIN) go install github.com/ahmetb/gen-crd-api-reference-docs@latest
+
+HELM_DOCS = $(LOCALBIN)/helm-docs
+HELM_DOCS_VERSION ?= v1.14.2
+.PHONY: helm-docs ## Download helm-docs locally if necessary
+helm-docs: $(HELM_DOCS)
+$(HELM_DOCS): | $(LOCALBIN)
+	@ GOBIN=$(LOCALBIN) go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
 ##@ General
 
 # The help target prints out all targets with their descriptions organized
@@ -280,6 +292,20 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 .PHONY: generate-mocks
 generate-mocks: mockery ## generate mock objects
 	PATH=$(LOCALBIN):$(PATH) go generate ./...
+
+
+.PHONY: generate-api-docs
+generate-api-docs: gen-crd-api-reference-docs ## generate api documentation
+	$(GEN_CRD_API_REFERENCE_DOCS) -api-dir=./api/v1alpha1 -config=${CURDIR}/hack/api-docs/config.json \
+	-template-dir=${CURDIR}/hack/api-docs/templates -out-file=$(BUILDDIR)/api-reference.html
+	$(CONTAINER_TOOL) run --rm --volume "`pwd`:/data:Z" pandoc/minimal -f html -t markdown_strict \
+	--columns 200 /data/build/api-reference.html -o /data/docs/api-reference.md
+	hack/api-docs/fix_links.sh docs/api-reference.md
+	chmod a+w docs/api-reference.md
+
+.PHONY: generate-helm-docs
+generate-helm-docs: helm-docs ## generate helm documentation
+	cd deployment/maintenance-operator-chart && $(HELM_DOCS)
 
 ##@ Build
 
