@@ -1,0 +1,82 @@
+operator:
+  image:
+    repository: ghcr.io/mellanox/maintenance-operator
+    #tag: latest
+  tolerations:
+    - key: "node-role.kubernetes.io/master"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  nodeSelector: {}
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 1
+          preference:
+            matchExpressions:
+              - key: "node-role.kubernetes.io/master"
+                operator: Exists
+        - weight: 1
+          preference:
+            matchExpressions:
+              - key: "node-role.kubernetes.io/control-plane"
+                operator: Exists
+  resources:
+    limits:
+      cpu: 500m
+      memory: 128Mi
+    requests:
+      cpu: 10m
+      memory: 64Mi
+  replicas: 1
+  serviceAccount:
+    annotations: {}
+  admissionController:
+    enable: true
+    certificates:
+      secretNames:
+        operator: "operator-webhook-cert"
+      certManager:
+        enable: true
+        generateSelfSigned: true
+      custom:
+        enable: false
+        #   operator:
+        #     caCrt: |
+        #       -----BEGIN CERTIFICATE-----
+        #       MIIMIICLDCCAdKgAwIBAgIBADAKBggqhkjOPQQDAjB9MQswCQYDVQQGEwJCRTEPMA0G
+        #       ...
+        #       -----END CERTIFICATE-----
+        #     tlsCrt: |
+        #       -----BEGIN CERTIFICATE-----
+        #       MIIMIICLDCCAdKgAwIBAgIBADAKBggqhkjOPQQDAjB9MQswCQYDVQQGEwJCRTEPMA0G
+        #       ...
+        #       -----END CERTIFICATE-----
+        #     tlsKey: |
+        #       -----BEGIN EC PRIVATE KEY-----
+        #       MHcl4wOuDwKQa+upc8GftXE2C//4mKANBC6It01gUaTIpo=
+        #       ...
+        #      -----END EC PRIVATE KEY-----
+
+operatorConfig:
+  logLevel: info
+#  maxParallelOperations: nil
+#  maxUnavailable: nil
+#  maxNodeMaintenanceTimeSeconds: 1600
+
+imagePullSecrets: []
+metricsService:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: https
+  type: ClusterIP
+webhookService:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
+  type: ClusterIP
