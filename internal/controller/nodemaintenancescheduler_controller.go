@@ -364,7 +364,7 @@ func (r *NodeMaintenanceSchedulerReconciler) getCurrentUnavailableNodes(nl []*co
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeMaintenanceSchedulerReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	qHandler := func(q workqueue.RateLimitingInterface) {
+	qHandler := func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
 			Namespace: "",
 			Name:      schedulerSyncEventName,
@@ -372,7 +372,7 @@ func (r *NodeMaintenanceSchedulerReconciler) SetupWithManager(mgr ctrl.Manager) 
 	}
 
 	eventHandler := handler.Funcs{
-		GenericFunc: func(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+		GenericFunc: func(ctx context.Context, e event.TypedGenericEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			log.Log.WithName("NodeMaintenanceScheduler").
 				Info("Enqueuing sync for generic event", "resource", e.Object.GetName())
 			qHandler(q)

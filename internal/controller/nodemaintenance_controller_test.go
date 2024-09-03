@@ -27,8 +27,10 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kptr "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -64,8 +66,9 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			// create controller manager
 			By("create controller manager")
 			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-				Scheme:  k8sClient.Scheme(),
-				Metrics: metricsserver.Options{BindAddress: "0"},
+				Scheme:     k8sClient.Scheme(),
+				Metrics:    metricsserver.Options{BindAddress: "0"},
+				Controller: ctrlconfig.Controller{SkipNameValidation: kptr.To(true)},
 			})
 			Expect(err).ToNot(HaveOccurred())
 
