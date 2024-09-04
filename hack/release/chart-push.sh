@@ -31,4 +31,5 @@ fi
 
 $HELM_CMD package ${HELM_CHART}
 $HELM_CMD registry login ghcr.io -u ${GITHUB_REPO_OWNER} -p ${GITHUB_TOKEN}
-$HELM_CMD push ${HELM_CHART_TARBALL} oci://ghcr.io/${GITHUB_REPO_OWNER}
+# we set repo-owner to lowercase for oci registry.
+$HELM_CMD push ${HELM_CHART_TARBALL} oci://ghcr.io/$(echo ${GITHUB_REPO_OWNER} | tr '[:upper:]' '[:lower:]')
