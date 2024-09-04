@@ -122,7 +122,7 @@ type WaitForPodCompletionSpec struct {
 
 // DrainSpec describes configuration for node drain during automatic upgrade
 type DrainSpec struct {
-	// Force indicates if force draining is allowed
+	// Force draining even if there are pods that do not declare a controller
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=false
 	Force bool `json:"force,omitempty"`

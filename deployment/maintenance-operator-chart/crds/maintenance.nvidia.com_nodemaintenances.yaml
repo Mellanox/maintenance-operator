@@ -81,7 +81,8 @@ spec:
                     type: boolean
                   force:
                     default: false
-                    description: Force indicates if force draining is allowed
+                    description: Force draining even if there are pods that do not
+                      declare a controller
                     type: boolean
                   podEvictionFilters:
                     description: |-
