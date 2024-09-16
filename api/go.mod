@@ -1,4 +1,4 @@
-module github.com/mellanox/maintenance-operator/api
+module github.com/Mellanox/maintenance-operator/api
 
 go 1.22.0
 
