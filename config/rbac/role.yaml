@@ -45,6 +45,14 @@ rules:
   - patch
   - update
 - apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - maintenance.nvidia.com
   resources:
   - maintenanceoperatorconfigs
