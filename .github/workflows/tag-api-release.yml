@@ -1,0 +1,34 @@
+name: Tag to API Version
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  tag_api_version:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Get version tag
+      id: get_tag
+      run: |
+        TAG="${GITHUB_REF##*/}"  # Extracts the tag (v1.2.3)
+        echo "tag: $TAG"
+        echo "::set-output name=tag::$TAG"
+
+    - name: Create API tag
+      run: |
+        API_TAG="api/${{ steps.get_tag.outputs.tag }}"
+        echo "API tag: $API_TAG"
+        git tag "$API_TAG"
+
+    - name: Push API tag
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        API_TAG="api/${{ steps.get_tag.outputs.tag }}"
+        git push origin "$API_TAG"
