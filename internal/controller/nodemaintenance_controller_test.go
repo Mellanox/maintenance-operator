@@ -85,13 +85,8 @@ var _ = Describe("NodeMaintenance Controller", func() {
 
 			// setup reconciler with manager
 			By("setup NodeMaintenanceReconciler with controller manager")
-			Expect(reconciler.SetupWithManager(mgr, ctrllog.Log.WithName("NodeMaintenanceReconciler"))).
+			Expect(reconciler.SetupWithManager(testCtx, mgr, ctrllog.Log.WithName("NodeMaintenanceReconciler"))).
 				ToNot(HaveOccurred())
-
-			// set up index fields
-			Expect(mgr.GetCache().IndexField(testCtx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
-				return []string{o.(*corev1.Pod).Spec.NodeName}
-			})).ToNot(HaveOccurred())
 
 			// start manager
 			testMgrCtx, cancel := context.WithCancel(testCtx)
