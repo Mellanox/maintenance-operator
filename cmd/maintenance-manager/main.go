@@ -27,12 +27,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -155,7 +153,7 @@ func main() {
 		CordonHandler:            cordon.NewCordonHandler(mgrClient, k8sInterface),
 		WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(mgrClient),
 		DrainManager:             drain.NewManager(ctrl.Log.WithName("DrainManager"), ctx, k8sInterface),
-	}).SetupWithManager(mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
+	}).SetupWithManager(ctx, mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
 		os.Exit(1)
 	}
@@ -205,17 +203,6 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
-
-	// index fields in mgr cache
-
-	// pod spec.nodeName used in nodemaintenance controller.
-	err = mgr.GetCache().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
-		return []string{o.(*corev1.Pod).Spec.NodeName}
-	})
-	if err != nil {
-		setupLog.Error(err, "failed to index field for cache")
 		os.Exit(1)
 	}
 
