@@ -17,14 +17,13 @@
 package scheduler
 
 import (
-	"cmp"
 	"slices"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
+	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
 	"github.com/Mellanox/maintenance-operator/internal/utils"
 )
 
@@ -40,31 +39,18 @@ type defaultScheduler struct {
 
 // Schedule implements Scheduler interface
 func (ds *defaultScheduler) Schedule(clusterState *ClusterState, schedulerCtx *SchedulerContext) []*maintenancev1.NodeMaintenance {
-	// Naive Implementation to get things working
+	// rank CandidateMaintenance
+	ranked := RankSlice(schedulerCtx.CandidateMaintenance,
+		NewRankerBuilder(clusterState).WithInProgressRanker().WithLeastPendingRanker().Build()...)
+	// sort
+	slices.SortFunc(ranked, CompareRanked)
 
-	// sort NodeMaintenance by NodeName and RequestorID
-	slices.SortFunc(schedulerCtx.CandidateMaintenance, func(a *maintenancev1.NodeMaintenance, b *maintenancev1.NodeMaintenance) int {
-		if a.Spec.NodeName != b.Spec.NodeName {
-			// different nodes, sort by NodeName
-			return cmp.Compare(a.Spec.NodeName, b.Spec.NodeName)
-		}
-
-		if a.Spec.RequestorID != b.Spec.RequestorID {
-			// different requestors, sort by requestorID
-			return cmp.Compare(a.Spec.RequestorID, b.Spec.RequestorID)
-		}
-
-		// same node and requestor, compare by Namespaced Name
-		return cmp.Compare(types.NamespacedName{Namespace: a.Namespace, Name: a.Name}.String(),
-			types.NamespacedName{Namespace: b.Namespace, Name: b.Name}.String())
-	})
+	for _, r := range ranked {
+		ds.log.V(operatorlog.DebugLevel).Info("ranked maintenance", "maintenance", r.CanonicalString(), "rank", r.Rank)
+	}
 
 	// compact entries pointing to the same Node, keeping the first (highest priority) NodeMainenance from the list.
-	// this is done as we can only recommend a single NodeMaintenance per node for scheduling.
-	// NOTE(adrianc): for this to work we rely on the fact that entries with same node are adjacent (assured by the sort function above)
-	compacted := slices.CompactFunc(schedulerCtx.CandidateMaintenance, func(a *maintenancev1.NodeMaintenance, b *maintenancev1.NodeMaintenance) bool {
-		return a.Spec.NodeName == b.Spec.NodeName
-	})
+	compacted := CompactIdenticalNodes(ranked)
 
 	// Return up to AvailableSlots NodeMaintenance without exceeding NodesCanBecomeUnavailable
 	var recommended []*maintenancev1.NodeMaintenance
@@ -80,11 +66,11 @@ func (ds *defaultScheduler) Schedule(clusterState *ClusterState, schedulerCtx *S
 				continue
 			}
 			canBecomeUnavail--
-			recommended = append(recommended, compacted[i])
+			recommended = append(recommended, &compacted[i].NodeMaintenance)
 		} else {
 			// node is already in unavailable state so scheduling nodeMaintenance for it will not affect the total number
 			// of unavailable nodes
-			recommended = append(recommended, compacted[i])
+			recommended = append(recommended, &compacted[i].NodeMaintenance)
 		}
 	}
 
