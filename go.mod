@@ -9,7 +9,7 @@ replace github.com/Mellanox/maintenance-operator/api => ./api
 require (
 	github.com/Mellanox/maintenance-operator/api v0.0.0-00010101000000-000000000000
 	github.com/go-logr/logr v1.4.2
-	github.com/onsi/ginkgo/v2 v2.20.1
+	github.com/onsi/ginkgo/v2 v2.20.2
 	github.com/onsi/gomega v1.34.2
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.9.0
