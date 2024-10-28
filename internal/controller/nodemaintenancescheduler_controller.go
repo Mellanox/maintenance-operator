@@ -209,7 +209,8 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 					r.Log.Error(innerErr, "failed to get NodeMaintenance object while waiting for condition update. retrying", "name", nm.Name, "namespace", nm.Namespace)
 					return false, nil
 				}
-				if k8sutils.GetReadyConditionReason(updatedNm) == maintenancev1.ConditionReasonScheduled {
+				if k8sutils.IsUnderMaintenance(updatedNm) {
+					// nodemaintenance transitioned from pending to one of the under maintenance states.
 					return true, nil
 				}
 				return false, nil
