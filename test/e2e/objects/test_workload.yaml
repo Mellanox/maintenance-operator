@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-workload
+  namespace: default
+  labels:
+    app: example-workload
+spec:
+  selector:
+    matchLabels:
+      app: example-workload
+  template:
+    metadata:
+      labels:
+        app: example-workload
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - example-workload
+            topologyKey: "kubernetes.io/hostname"
+      terminationGracePeriodSeconds: 1
+      containers:
+      - name: example
+        image: quay.io/quay/busybox:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh"]
+        args: ["-c", "sleep 640000"]

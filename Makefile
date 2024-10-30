@@ -194,6 +194,13 @@ $(MINIKUBE): | $(LOCALBIN)
 		chmod +x $(MINIKUBE);\
 	}
 
+# kind is used to set-up local kubernetes cluster for e2e tests.
+KIND_VER := v0.24.0
+KIND := $(abspath $(LOCALBIN)/kind-$(KIND_VER))
+.PHONY: kind ## Download kind locally if necessary.
+	@ test -s $(LOCALBIN)/$(KIND) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/kind$(KIND_VER)
+
+
 HELM := $(abspath $(LOCALBIN)/helm)
 .PHONY: helm
 helm: $(HELM) ## Download helm (last release) locally if necessary.
@@ -276,10 +283,10 @@ test: unit-test lint
 unit-test: envtest ## Run unit tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -cover -covermode=$(COVER_MODE) -coverprofile=$(COVER_PROFILE) $(PKGS)
 
-# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
-.PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
+
+.PHONY: test-e2e  # Run the e2e tests against a k8s instance with maintenance-operator installed.
 test-e2e:
-	go test ./test/e2e/ -v -ginkgo.v
+	go test ./test/e2e/ -v -ginkgo.v -e2e.maintenanceOperatorNamespace=maintenance-operator
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
