@@ -54,7 +54,8 @@ endif
 OPERATOR_SDK_VERSION ?= v1.35.0
 
 # Image URL to use all building/pushing image targets
-IMG ?= $(IMAGE_TAG_BASE):latest
+TAG ?= latest
+IMG ?= $(IMAGE_TAG_BASE):$(TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.30.0
 
@@ -143,8 +144,7 @@ ifeq (, $(shell which operator-sdk 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
+	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$(TARGETOS)_$(TARGETARCH) ;\
 	chmod +x $(OPERATOR_SDK) ;\
 	}
 else
@@ -160,8 +160,7 @@ ifeq (,$(shell which opm 2>/dev/null))
 	@{ \
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
-	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$(TARGETOS)-$(TARGETARCH)-opm ;\
 	chmod +x $(OPM) ;\
 	}
 else
@@ -176,8 +175,7 @@ skaffold: $(SKAFFOLD) ## Download skaffold locally if necessary.
 $(SKAFFOLD): | $(LOCALBIN)
 	@{ \
 		set -e;\
-		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-		curl -fsSL https://storage.googleapis.com/skaffold/releases/$(SKAFFOLD_VER)/skaffold-$${OS}-$${ARCH} -o $(SKAFFOLD); \
+		curl -fsSL https://storage.googleapis.com/skaffold/releases/$(SKAFFOLD_VER)/skaffold-$(TARGETOS)-$(TARGETARCH) -o $(SKAFFOLD); \
 		chmod +x $(SKAFFOLD);\
 	}
 
@@ -189,8 +187,7 @@ minikube: $(MINIKUBE) ## Download minikube locally if necessary.
 $(MINIKUBE): | $(LOCALBIN)
 	@{ \
 		set -e;\
-		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-		curl -fsSL https://storage.googleapis.com/minikube/releases/$(MINIKUBE_VER)/minikube-$${OS}-$${ARCH} -o $(MINIKUBE); \
+		curl -fsSL https://storage.googleapis.com/minikube/releases/$(MINIKUBE_VER)/minikube-$(TARGETOS)-$(TARGETARCH) -o $(MINIKUBE); \
 		chmod +x $(MINIKUBE);\
 	}
 
@@ -198,8 +195,24 @@ $(MINIKUBE): | $(LOCALBIN)
 KIND_VER := v0.24.0
 KIND := $(abspath $(LOCALBIN)/kind-$(KIND_VER))
 .PHONY: kind ## Download kind locally if necessary.
-	@ test -s $(LOCALBIN)/$(KIND) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/kind$(KIND_VER)
+kind: $(KIND)
+$(KIND): | $(LOCALBIN)
+	@{ \
+		set -e; \
+		test -s $(LOCALBIN)/$(KIND) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/kind@$(KIND_VER); \
+		mv $(LOCALBIN)/kind $(KIND); \
+	}
 
+KUBECTL_VER := v1.31.0
+KUBECTL := $(abspath $(LOCALBIN)/kubectl-$(KUBECTL_VER))
+.PHONY: kubectl ## Download kubectl locally if necessary.
+kubectl: $(KUBECTL)
+$(KUBECTL): | $(LOCALBIN)
+	@{ \
+		set -e;\
+		curl -fsSL https://dl.k8s.io/release/$(KUBECTL_VER)/bin/$(TARGETOS)/$(TARGETARCH)/kubectl -o $(KUBECTL); \
+		chmod +x $(KUBECTL);\
+	}
 
 HELM := $(abspath $(LOCALBIN)/helm)
 .PHONY: helm
@@ -283,9 +296,8 @@ test: unit-test lint
 unit-test: envtest ## Run unit tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test -cover -covermode=$(COVER_MODE) -coverprofile=$(COVER_PROFILE) $(PKGS)
 
-
-.PHONY: test-e2e  # Run the e2e tests against a k8s instance with maintenance-operator installed.
-test-e2e:
+.PHONY: test-e2e
+test-e2e: # Run the e2e tests against a k8s instance with maintenance-operator installed.
 	go test ./test/e2e/ -v -ginkgo.v -e2e.maintenanceOperatorNamespace=maintenance-operator
 
 .PHONY: lint
@@ -358,24 +370,42 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-KUBECTL ?= kubectl
-
 .PHONY: install
-install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
+install: manifests kustomize kubectl ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
 
 .PHONY: uninstall
-uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+uninstall: manifests kustomize kubectl ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize kubectl ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+undeploy: kubectl ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: deploy-operator-e2e
+deploy-operator-e2e: helm kubectl kind ## Deploy operator to test cluster
+	@{ \
+		echo "Building test image"; \
+		TAG=test make docker-build; \
+		echo "Upload test image to kind cluster"; \
+		$(KIND) load docker-image $(IMAGE_TAG_BASE):test --name $(TEST_CLUSTER_NAME); \
+		echo "deploy operator to kind cluster"; \
+		$(HELM) upgrade -i --create-namespace -n maintenance-operator \
+			--set operator.image.repository=$(IMAGE_TAG_BASE) --set operator.image.tag=test --set operator.image.imagePullPolicy=Never \
+			maintenance-operator $(CURDIR)/deployment/maintenance-operator-chart; \
+	}
+
+.PHONY: undeploy-operator-e2e
+undeploy-operator-e2e: helm ## Undeploy operator from test cluster
+	@{ \
+		$(HELM) uninstall -n maintenance-operator maintenance-operator; \
+		$(KUBECTL) delete ns maintenance-operator; \
+	}
 
 ##@ Build Dependencies
 
@@ -438,16 +468,25 @@ SKAFFOLD_REGISTRY ?= localhost:5000
 .PHONY: dev-env
 dev-env: | $(MINIKUBE) $(HELM) ## Create minikube cluster for dev and tests
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) $(CURDIR)/hack/scripts/setup_minikube.sh
-	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
 
 .PHONY: dev-env-multinode
 dev-env-multinode: | $(MINIKUBE) $(HELM) ## Create minikube cluster for dev and tests
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) NUM_NODES=4 USE_MINIKUBE_DOCKER=false $(CURDIR)/hack/scripts/setup_minikube.sh
-	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
+
+.PHONY: test-env-e2e
+test-env-e2e: | $(KIND) $(HELM) $(KUBECTL) ## Create kind cluster for e2e tests and deploys maintenance operator
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) KIND_BIN=$(KIND) KUBECTL_BIN=$(KUBECTL) $(CURDIR)/hack/scripts/setup_kind.sh
+	CLUSTER_NAME=$(TEST_CLUSTER_NAME) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
 
 .PHONY: clean-dev-env
 clean-dev-env: $(MINIKUBE) ## Teardown minikube cluster for dev and tests
 	$(MINIKUBE) delete -p $(TEST_CLUSTER_NAME)
+
+.PHONY: clean-test-env-e2e
+clean-test-env-e2e: kind ## Teardown kind cluster for e2e tests
+	$(KIND) delete cluster --name $(TEST_CLUSTER_NAME)
 
 .PHONY: dev-operator
 dev-operator: $(MINIKUBE) $(SKAFFOLD) ## Deploy maintenance operator controller to dev cluster using skaffold
