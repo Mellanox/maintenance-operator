@@ -109,30 +109,36 @@ var _ = Describe("NodeMaintenance Controller", func() {
 		})
 
 		AfterEach(func() {
+			var allObj []client.Object
 			By("Cleanup NodeMaintenance resources")
 			for _, nm := range nmObjectsToCleanup {
-				err := k8sClient.Delete(testCtx, nm)
-				if err != nil && k8serrors.IsNotFound(err) {
-					err = nil
-				}
-				Expect(err).ToNot(HaveOccurred())
-			}
-			By("Wait for NodeMaintenance resources to be deleted")
-			for _, nm := range nmObjectsToCleanup {
-				Eventually(func() bool {
-					err := k8sClient.Get(testCtx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, nm)
+				// remove finalizers if any and delete object
+				err := k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)
+				if err == nil {
+					// delete obj
+					err = k8sClient.Delete(testCtx, nm)
 					if err != nil && k8serrors.IsNotFound(err) {
-						return true
+						err = nil
 					}
-					return false
-
-				}).WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(BeTrue())
+					Expect(err).ToNot(HaveOccurred())
+					// remove finalizers
+					if len(nm.GetFinalizers()) > 0 {
+						nm.SetFinalizers(nil)
+						err := k8sClient.Update(testCtx, nm)
+						if err != nil && k8serrors.IsNotFound(err) {
+							err = nil
+						}
+						Expect(err).ToNot(HaveOccurred())
+					}
+				}
+				allObj = append(allObj, nm)
 			}
 			nmObjectsToCleanup = make([]*maintenancev1.NodeMaintenance, 0)
 
 			By("Cleanup Node resources")
 			for _, n := range nodeObjectsToCleanup {
 				Expect(k8sClient.Delete(testCtx, n)).To(Succeed())
+				allObj = append(allObj, n)
 			}
 			nodeObjectsToCleanup = make([]*corev1.Node, 0)
 
@@ -144,8 +150,17 @@ var _ = Describe("NodeMaintenance Controller", func() {
 					err = nil
 				}
 				Expect(err).ToNot(HaveOccurred())
+				allObj = append(allObj, p)
 			}
 			podObjectsToCleanup = make([]*corev1.Pod, 0)
+
+			By("Wait for all objects to be removed from api")
+			for _, obj := range allObj {
+				Eventually(func() bool {
+					err := k8sClient.Get(testCtx, client.ObjectKeyFromObject(obj), obj)
+					return k8serrors.IsNotFound(err)
+				}).WithTimeout(30*time.Second).WithPolling(1*time.Second).Should(BeTrue(), "Object not deleted", obj.GetNamespace(), obj.GetName())
+			}
 		})
 
 		It("Should transition new NodeMaintenance Resource to Pending", func() {
