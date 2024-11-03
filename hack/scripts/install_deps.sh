@@ -22,8 +22,6 @@ if [[ "${TRACE-0}" == "1" ]]; then
     set -o xtrace
 fi
 
-CLUSTER_NAME=${CLUSTER_NAME:-"mn-op"}
-MINIKUBE_BIN=${MINIKUBE_BIN:-"unknown"}
 HELM_BIN=${HELM_BIN:-"unknown"}
 
 CERT_MANAGER_VERSION=${CERT_MANAGER_VERSION:-"v1.15.3"}
@@ -33,23 +31,12 @@ function helm() {
     ${HELM_BIN} $@
 }
 
-function minikube() {
-    ${MINIKUBE_BIN} $@
-}
-
-# Check for mandatory vars
-if [[ "${MINIKUBE_BIN}" == "unknown" ]]; then
-  echo "MINIKUBE_BIN not provided. Aborting." >&2
-  exit 1
-fi
-
 if [[ "${HELM_BIN}" == "unknown" ]]; then
   echo "HELM_BIN not provided. Aborting." >&2
   exit 1
 fi
 
-# set minikube profile
-minikube profile ${CLUSTER_NAME}
+# NOTE: we assume current kubeconfig in home dir points to the test cluster
 # install helm
 echo "Installing cert-manager ${CERT_MANAGER_VERSION}"
 helm repo add jetstack https://charts.jetstack.io --force-update

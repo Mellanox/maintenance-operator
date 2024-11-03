@@ -25,5 +25,8 @@ go.work.sum
 build/
 bin/
 
+# artifact dirs
+artifacts/
+
 # IDE
 .vscode

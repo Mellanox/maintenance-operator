@@ -4,6 +4,8 @@ operator:
     repository: ghcr.io/mellanox/maintenance-operator
     # -- image tag to use for the operator image
     tag: null
+    # -- image pull policy for the operator image
+    imagePullPolicy: null
   # -- toleration for the operator
   tolerations:
     - key: "node-role.kubernetes.io/master"

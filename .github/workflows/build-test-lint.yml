@@ -84,3 +84,28 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: cover.out
+  e2e-test:
+    runs-on: ubuntu-latest
+    needs: [test, build-image]
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22.x
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v4
+      - name: prepare test k8s cluster
+        run: make test-env-e2e
+      - name: build and deploy operator
+        run: make deploy-operator-e2e
+      - name: run e2e tests
+        run: make test-e2e
+      - name: upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-artifacts
+          path: ./artifacts
+      - name: cleanup
+        if: always()
+        run: make clean-test-env-e2e
