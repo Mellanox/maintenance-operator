@@ -9,7 +9,6 @@ metadata:
     app.kubernetes.io/created-by: maintenance-operator
   name: maintenanceoperatorconfig-sample
 spec:
-spec:
   # maxParallelOperations indicates how many nodes can be processed in parallel, 0 means no limit
   # value can be an absolute number (ex: 5) or a percentage of total nodes in the cluster (ex: 10%).
   # absolute number is calculated from percentage by rounding up.

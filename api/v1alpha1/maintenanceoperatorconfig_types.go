@@ -58,14 +58,19 @@ type MaintenanceOperatorConfigSpec struct {
 	MaxNodeMaintenanceTimeSeconds int32 `json:"maxNodeMaintenanceTimeSeconds,omitempty"`
 }
 
+type MaintenanceOperatorConfigStatus struct {
+}
+
 //+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
 
 // MaintenanceOperatorConfig is the Schema for the maintenanceoperatorconfigs API
 type MaintenanceOperatorConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec MaintenanceOperatorConfigSpec `json:"spec,omitempty"`
+	Spec   MaintenanceOperatorConfigSpec   `json:"spec,omitempty"`
+	Status MaintenanceOperatorConfigStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true

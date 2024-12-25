@@ -3,14 +3,17 @@ on:
   push:
     tags:
       - v*
+env:
+  REGISTRY: "ghcr.io"
+  OPERATOR_IMAGE_NAME: "maintenance-operator"
 jobs:
   image-build-push:
     name: Image build and push
     runs-on: ubuntu-latest
     steps:
-      - name: Set repository as lower-case output variable
-        id: repo_name
-        run: echo ::set-output name=repository::$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')
+      - name: Set repository owner as lower-case output variable
+        id: repo_owner
+        run: echo REPO_OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
         with:
@@ -29,7 +32,7 @@ jobs:
         id: docker_meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ steps.repo_name.outputs.repository }}
+          images: ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ env.OPERATOR_IMAGE_NAME }}
           tags: |
             type=ref,event=tag
           flavor: |
@@ -44,3 +47,30 @@ jobs:
             ${{ steps.docker_meta.outputs.tags }}
           labels: ${{ steps.docker_meta.outputs.labels }}
           file: ./Dockerfile
+      - name: Determine version, tag, and base branch
+        run: |
+          git_tag=${{ github.ref_name }}
+          echo VERSION_WITH_PREFIX=$git_tag        >> $GITHUB_ENV
+          echo VERSION_WITHOUT_PREFIX=${git_tag:1} >> $GITHUB_ENV  # without the 'v' prefix
+          if echo $git_tag | grep beta; then
+            base_branch=$DEFAULT_BRANCH
+          else
+            v_major_minor=$(echo $git_tag | grep -Eo '^v[0-9]+\.[0-9]+')
+            base_branch=$v_major_minor.x
+          fi
+          echo BASE_BRANCH=$base_branch >> $GITHUB_ENV
+      - name: Lookup image digest
+        run: |
+          operator_digest=$(skopeo inspect docker://$REGISTRY/$REPO_OWNER/$OPERATOR_IMAGE_NAME:$VERSION_WITH_PREFIX | jq -r .Digest)
+          echo $operator_digest | wc -w | grep 1  # verifies value not empty
+          echo OPERATOR_DIGEST=$operator_digest >> $GITHUB_ENV
+      - name: Make bundle
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ env.OPERATOR_IMAGE_NAME }}@${{ env.OPERATOR_DIGEST }}
+          BUNDLE_IMG: ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ env.OPERATOR_IMAGE_NAME }}-bundle:${{ github.ref_name }}
+          VERSION: ${{ env.VERSION_WITHOUT_PREFIX }}
+        run: |
+          version_major_minor=$(echo $VERSION_WITH_PREFIX | grep -Eo 'v[0-9]+\.[0-9]+')
+          export CHANNELS=stable,$version_major_minor
+          export DEFAULT_CHANNEL=$version_major_minor
+          make bundle bundle-build bundle-push

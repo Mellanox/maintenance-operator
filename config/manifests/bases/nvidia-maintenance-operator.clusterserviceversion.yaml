@@ -1,0 +1,75 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    description: Node maintenance in K8s cluster in a coordinated manner
+    features.operators.openshift.io/cnf: "false"
+    features.operators.openshift.io/cni: "false"
+    features.operators.openshift.io/csi: "false"
+    features.operators.openshift.io/disconnected: "true"
+    features.operators.openshift.io/fips-compliant: "false"
+    features.operators.openshift.io/proxy-aware: "true"
+    features.operators.openshift.io/tls-profiles: "false"
+    features.operators.openshift.io/token-auth-aws: "false"
+    features.operators.openshift.io/token-auth-azure: "false"
+    features.operators.openshift.io/token-auth-gcp: "false"
+    operatorframework.io/suggested-namespace: nvidia-maintenance-operator
+    provider: NVIDIA
+    repository: https://github.com/Mellanox/maintenance-operator/
+    support: NVIDIA
+  labels:
+    operatorframework.io/arch.amd64: supported
+    operatorframework.io/arch.arm64: supported
+  name: nvidia-maintenance-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: MaintenanceOperatorConfig is the Schema for the maintenanceoperatorconfigs
+        API
+      displayName: Maintenance Operator Config
+      kind: MaintenanceOperatorConfig
+      name: maintenanceoperatorconfigs.maintenance.nvidia.com
+      version: v1alpha1
+    - description: NodeMaintenance is the Schema for the nodemaintenances API
+      displayName: Node Maintenance
+      kind: NodeMaintenance
+      name: nodemaintenances.maintenance.nvidia.com
+      version: v1alpha1
+  description: Coordinates And Performs Common Node Preparations For Maintenance
+  displayName: NVIDIA Maintenance Operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - node
+  - maintenance
+  - drain
+  links:
+  - name: NVIDIA Maintenance Operator
+    url: https://github.com/Mellanox/maintenance-operator/
+  maintainers:
+  - email: nvidia-network-operator-support@nvidia.com
+    name: NVIDIA
+  maturity: alpha
+  minKubeVersion: 1.30.0
+  provider:
+    name: NVIDIA
+    url: https://github.com/Mellanox/maintenance-operator/
+  version: 0.0.0
