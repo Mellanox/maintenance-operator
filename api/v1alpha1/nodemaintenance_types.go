@@ -194,6 +194,8 @@ type DrainStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:selectablefield:JSONPath=`.spec.nodeName`
+// +kubebuilder:selectablefield:JSONPath=`.spec.requestorID`
 // +kubebuilder:printcolumn:name="Node",type="string",JSONPath=`.spec.nodeName`
 // +kubebuilder:printcolumn:name="Requestor",type="string",JSONPath=`.spec.requestorID`
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=`.status.conditions[?(@.type=='Ready')].status`

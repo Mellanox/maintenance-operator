@@ -266,6 +266,9 @@ spec:
                 type: array
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.nodeName
+    - jsonPath: .spec.requestorID
     served: true
     storage: true
     subresources:
