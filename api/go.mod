@@ -2,7 +2,7 @@ module github.com/Mellanox/maintenance-operator/api
 
 go 1.22.0
 
-toolchain go1.22.4
+toolchain go1.22.10
 
 require (
 	k8s.io/api v0.31.0
