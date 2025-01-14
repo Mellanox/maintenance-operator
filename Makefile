@@ -292,7 +292,7 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
 
 .PHONY: test
-test: unit-test lint
+test: lint unit-test
 
 .PHONY: unit-test
 unit-test: envtest ## Run unit tests.

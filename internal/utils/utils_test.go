@@ -78,4 +78,13 @@ var _ = Describe("Utils Tests", func() {
 			}
 		})
 	})
+
+	Context("JsonPatch", func() {
+		It("Creates JsonPatch object", func() {
+			patch := utils.NewJSONPatch("add", "/spec/annotations", "foo.bar/baz", "raz")
+			Expect(patch.Op).To(Equal("add"))
+			Expect(patch.Path).To(Equal("/spec/annotations/foo.bar~1baz"))
+			Expect(patch.Value).To(Equal("raz"))
+		})
+	})
 })
