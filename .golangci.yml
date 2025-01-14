@@ -48,13 +48,13 @@ linters:
     - bodyclose
     - containedctx
     - contextcheck
+    - copyloopvar
     - decorder
     - dogsled
     - durationcheck
     - errcheck
     - errchkjson
     - errname
-    - exportloopref
     - fatcontext
     - funlen
     - ginkgolinter

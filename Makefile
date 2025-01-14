@@ -59,7 +59,7 @@ OPERATOR_SDK_VERSION ?= v1.38.0
 TAG ?= latest
 IMG ?= $(IMAGE_TAG_BASE):$(TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.31.0
+ENVTEST_K8S_VERSION = 1.32.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -114,7 +114,7 @@ $(MOCKERY): | $(LOCALBIN)
 
 .PHONY: kustomize
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
-KUSTOMIZE_VERSION ?= v5.4.2
+KUSTOMIZE_VERSION ?= v5.5.0
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
 $(KUSTOMIZE): $(LOCALBIN)
 	@if test -x $(LOCALBIN)/kustomize && ! $(LOCALBIN)/kustomize version | grep -q $(KUSTOMIZE_VERSION); then \
@@ -182,7 +182,7 @@ $(SKAFFOLD): | $(LOCALBIN)
 	}
 
 # minikube is used to set-up a local kubernetes cluster for dev work.
-MINIKUBE_VER := v1.33.1
+MINIKUBE_VER := v1.34.0
 MINIKUBE := $(abspath $(LOCALBIN)/minikube-$(MINIKUBE_VER))
 .PHONY: minikube
 minikube: $(MINIKUBE) ## Download minikube locally if necessary.
@@ -205,7 +205,7 @@ $(KIND): | $(LOCALBIN)
 		mv $(LOCALBIN)/kind $(KIND); \
 	}
 
-KUBECTL_VER := v1.31.0
+KUBECTL_VER := v1.32.0
 KUBECTL := $(abspath $(LOCALBIN)/kubectl-$(KUBECTL_VER))
 .PHONY: kubectl ## Download kubectl locally if necessary.
 kubectl: $(KUBECTL)
@@ -235,7 +235,7 @@ $(YQ): | $(LOCALBIN)
 	@curl -fsSL -o $(YQ) https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_linux_amd64 && chmod +x $(YQ)
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.59.1
+GOLANGCI_LINT_VERSION ?= v1.63.4
 .PHONY: golangci-lint ## Download golangci-lint locally if necessary.
 golangci-lint:
 	@[ -f $(GOLANGCI_LINT) ] || { \
