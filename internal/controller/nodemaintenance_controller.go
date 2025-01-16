@@ -445,6 +445,7 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 			return fmt.Errorf("failed to list pods. %w", err)
 		}
 
+		//nolint:gosec
 		nm.Status.Drain = &maintenancev1.DrainStatus{
 			TotalPods:    int32(len(podsOnNode.Items)),
 			EvictionPods: int32(len(ds.PodsToDelete)),

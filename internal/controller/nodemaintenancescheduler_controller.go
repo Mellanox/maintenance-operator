@@ -184,7 +184,6 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 	// set NodeMaintenance Ready Condition Reason to Scheduled
 	wg := sync.WaitGroup{}
 	for _, nm := range toSchedule {
-		nm := nm
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
