@@ -284,7 +284,8 @@ clean: ## clean files
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./api/..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) crd paths="./api/..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role webhook paths="./internal/controller/..."
 	cp -f config/crd/bases/* deployment/maintenance-operator-chart/crds
 
 .PHONY: generate
@@ -292,7 +293,7 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
 
 .PHONY: test
-test: unit-test lint
+test: lint unit-test
 
 .PHONY: unit-test
 unit-test: envtest ## Run unit tests.
