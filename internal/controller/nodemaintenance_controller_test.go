@@ -81,6 +81,7 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(k8sClient),
 				DrainManager: drain.NewManager(ctrllog.Log.WithName("DrainManager"),
 					testCtx, k8sInterface),
+				MCPManager: nil,
 			}
 
 			// setup reconciler with manager

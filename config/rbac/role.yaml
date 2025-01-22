@@ -53,34 +53,35 @@ rules:
   - list
   - watch
 - apiGroups:
-  - maintenance.nvidia.com
+  - config.openshift.io
   resources:
-  - maintenanceoperatorconfigs
+  - infrastructures
   verbs:
-  - create
-  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - machineconfiguration.openshift.io
+  resources:
+  - machineconfigpools
+  verbs:
   - get
   - list
   - patch
   - update
   - watch
 - apiGroups:
-  - maintenance.nvidia.com
+  - machineconfiguration.openshift.io
   resources:
-  - maintenanceoperatorconfigs/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - maintenance.nvidia.com
-  resources:
-  - maintenanceoperatorconfigs/status
+  - machineconfigs
   verbs:
   - get
-  - patch
-  - update
+  - list
+  - watch
 - apiGroups:
   - maintenance.nvidia.com
   resources:
+  - maintenanceoperatorconfigs
   - nodemaintenances
   verbs:
   - create
@@ -93,12 +94,14 @@ rules:
 - apiGroups:
   - maintenance.nvidia.com
   resources:
+  - maintenanceoperatorconfigs/finalizers
   - nodemaintenances/finalizers
   verbs:
   - update
 - apiGroups:
   - maintenance.nvidia.com
   resources:
+  - maintenanceoperatorconfigs/status
   - nodemaintenances/status
   verbs:
   - get

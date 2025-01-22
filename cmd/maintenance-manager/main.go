@@ -27,6 +27,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	ocpconfigv1 "github.com/openshift/api/config/v1"
+	mcv1 "github.com/openshift/api/machineconfiguration/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -40,6 +42,7 @@ import (
 	"github.com/Mellanox/maintenance-operator/internal/cordon"
 	"github.com/Mellanox/maintenance-operator/internal/drain"
 	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
+	"github.com/Mellanox/maintenance-operator/internal/openshift"
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/scheduler"
 	"github.com/Mellanox/maintenance-operator/internal/version"
@@ -54,6 +57,8 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(ocpconfigv1.Install(scheme))
+	utilruntime.Must(mcv1.Install(scheme))
 
 	utilruntime.Must(maintenancev1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -147,13 +152,31 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 	mgrClient := mgr.GetClient()
 
-	if err = (&controller.NodeMaintenanceReconciler{
+	ocpUtils, err := openshift.NewOpenshiftUtils(ctx, mgr.GetAPIReader())
+	if err != nil {
+		setupLog.Error(err, "unable to create openshift utils")
+		os.Exit(1)
+	}
+
+	if ocpUtils.IsOpenshift() {
+		setupLog.Info("openshift cluster detected",
+			"isOpenshift", ocpUtils.IsOpenshift(), "isHypershift", ocpUtils.IsHypershift())
+	}
+
+	nmReconciler := &controller.NodeMaintenanceReconciler{
 		Client:                   mgrClient,
 		Scheme:                   mgr.GetScheme(),
 		CordonHandler:            cordon.NewCordonHandler(mgrClient, k8sInterface),
 		WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(mgrClient),
 		DrainManager:             drain.NewManager(ctrl.Log.WithName("DrainManager"), ctx, k8sInterface),
-	}).SetupWithManager(ctx, mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
+		MCPManager:               nil,
+	}
+
+	if ocpUtils.IsOpenshift() && !ocpUtils.IsHypershift() {
+		nmReconciler.MCPManager = openshift.NewMCPManager(mgrClient)
+	}
+
+	if err = nmReconciler.SetupWithManager(ctx, mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
 		os.Exit(1)
 	}

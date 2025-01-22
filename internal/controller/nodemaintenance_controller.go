@@ -47,6 +47,7 @@ import (
 	"github.com/Mellanox/maintenance-operator/internal/drain"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
 	operatorlog "github.com/Mellanox/maintenance-operator/internal/log"
+	"github.com/Mellanox/maintenance-operator/internal/openshift"
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/utils"
 )
@@ -55,6 +56,7 @@ var (
 	waitPodCompletionRequeueTime    = 10 * time.Second
 	drainReqeueTime                 = 10 * time.Second
 	additionalRequestorsRequeueTime = 10 * time.Second
+	pauseMCPRequeueTime             = 10 * time.Second
 )
 
 const (
@@ -71,6 +73,7 @@ type NodeMaintenanceReconciler struct {
 	CordonHandler            cordon.Handler
 	WaitPodCompletionHandler podcompletion.Handler
 	DrainManager             drain.Manager
+	MCPManager               openshift.MCPManager
 }
 
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=get;list;watch;create;update;patch;delete
@@ -81,6 +84,9 @@ type NodeMaintenanceReconciler struct {
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;watch;list;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create;get;list;update;patch;delete
 //+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;watch;list
+//+kubebuilder:rbac:groups="config.openshift.io",resources=infrastructures,verbs=get;watch;list
+//+kubebuilder:rbac:groups="machineconfiguration.openshift.io",resources=machineconfigs,verbs=get;watch;list
+//+kubebuilder:rbac:groups="machineconfiguration.openshift.io",resources=machineconfigpools,verbs=get;watch;list;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -140,7 +146,7 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			reqLog.Error(err, "failed to handle uninitialized state for NodeMaintenance object")
 		}
 	case maintenancev1.ConditionReasonScheduled:
-		err = r.handleScheduledState(ctx, reqLog, nm)
+		res, err = r.handleScheduledState(ctx, reqLog, nm, node)
 		if err != nil {
 			reqLog.Error(err, "failed to handle scheduled state for NodeMaintenance object")
 		}
@@ -200,7 +206,7 @@ func (r *NodeMaintenanceReconciler) handleUninitiaizedState(ctx context.Context,
 
 // handleScheduledState handles NodeMaintenance in ConditionReasonScheduled state
 // it eventually sets NodeMaintenance Ready condition Reason to ConditionReasonWaitForPodCompletion
-func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance) error {
+func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
 	reqLog.Info("Handle Scheduled NodeMaintenance")
 	var err error
 
@@ -209,28 +215,44 @@ func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, re
 		err = k8sutils.AddFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
 		if err != nil {
 			reqLog.Error(err, "failed to set finalizer for NodeMaintenance")
-			return err
+			return ctrl.Result{}, err
 		}
 	} else {
 		// object is being deleted, remove finalizer if exists and return
 		reqLog.Info("NodeMaintenance object is deleting")
-		return r.handleFinalizerRemoval(ctx, reqLog, nm)
+
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return ctrl.Result{}, r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
-	// TODO(adrianc): in openshift, we should pause MCP here
+	if r.MCPManager != nil {
+		if err = r.MCPManager.PauseMCP(ctx, node, nm); err != nil {
+			if errors.Is(err, openshift.ErrMachineConfigBusy) {
+				reqLog.Info("machine config pool is busy, requeue", "error", err)
+				return ctrl.Result{Requeue: true, RequeueAfter: pauseMCPRequeueTime}, nil
+			}
+			reqLog.Error(err, "failed to pause MachineConfigPool")
+			return ctrl.Result{}, fmt.Errorf("failed to pause MachineConfigPool. %w", err)
+		}
+	}
 
 	// Set Ready condition to ConditionReasonCordon and update object
 	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonCordon)
 	if err != nil {
 		reqLog.Error(err, "failed to update status for NodeMaintenance object")
-		return err
+		return ctrl.Result{}, err
 	}
 
 	// emit state change event
 	r.EventRecorder.Event(
 		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonCordon)
 
-	return nil
+	return ctrl.Result{}, nil
 }
 
 func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) error {
@@ -248,7 +270,12 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 			}
 		}
 
-		// TODO(adrianc): unpause MCP in OCP when support is added.
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return err
+			}
+		}
+
 		return r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
@@ -289,7 +316,12 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 			}
 		}
 
-		// TODO(adrianc): unpause MCP in OCP when support is added.
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return res, err
+			}
+		}
+
 		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
 		return res, err
 	}
@@ -331,29 +363,7 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 	if !nm.GetDeletionTimestamp().IsZero() {
 		// object is being deleted, handle cleanup.
 		reqLog.Info("NodeMaintenance object is deleting")
-
-		reqLog.Info("handle drain request removal")
-		drainReqUID := drain.DrainRequestUIDFromNodeMaintenance(nm)
-		req := r.DrainManager.GetRequest(drainReqUID)
-		if req != nil {
-			reqLog.Info("stopping and removing drain request", "reqUID", drainReqUID, "state", req.State())
-		}
-		r.DrainManager.RemoveRequest(drainReqUID)
-
-		if nm.Spec.Cordon {
-			reqLog.Info("handle uncordon of node, ", "node", node.Name)
-			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
-			if err != nil {
-				return res, err
-			}
-		}
-
-		// TODO(adrianc): unpause MCP in OCP when support is added.
-
-		// remove finalizer if exists and return
-		reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer")
-		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
-		return res, err
+		return r.handleDrainStateDelete(ctx, reqLog, nm, node)
 	}
 
 	if nm.Spec.DrainSpec != nil {
@@ -429,6 +439,38 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 	return res, nil
 }
 
+func (r *NodeMaintenanceReconciler) handleDrainStateDelete(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
+	var res ctrl.Result
+	var err error
+
+	reqLog.Info("handle drain request removal")
+	drainReqUID := drain.DrainRequestUIDFromNodeMaintenance(nm)
+	req := r.DrainManager.GetRequest(drainReqUID)
+	if req != nil {
+		reqLog.Info("stopping and removing drain request", "reqUID", drainReqUID, "state", req.State())
+	}
+	r.DrainManager.RemoveRequest(drainReqUID)
+
+	if nm.Spec.Cordon {
+		reqLog.Info("handle uncordon of node, ", "node", node.Name)
+		err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
+		if err != nil {
+			return res, err
+		}
+	}
+
+	if r.MCPManager != nil {
+		if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+			return res, err
+		}
+	}
+
+	// remove finalizer if exists and return
+	reqLog.Info("NodeMaintenance object is deleting, removing maintenance finalizer")
+	err = r.handleFinalizerRemoval(ctx, reqLog, nm)
+	return res, err
+}
+
 // updateDrainStatus updates NodeMaintenance drain status in place. returns error if occurred
 func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *maintenancev1.NodeMaintenance, drainReq drain.DrainRequest) error {
 	ds, err := drainReq.Status()
@@ -490,7 +532,11 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 			}
 		}
 
-		// TODO(adrianc): unpause MCP in OCP when support is added.
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return res, err
+			}
+		}
 
 		// remove finalizer if exists and return
 		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
