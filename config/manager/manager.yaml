@@ -20,7 +20,7 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: deployment
     app.kubernetes.io/instance: controller-manager
-    app.kubernetes.io/component: manager
+    app.kubernetes.io/component: maintenance-operator-controller-manager
     app.kubernetes.io/created-by: maintenance-operator
     app.kubernetes.io/part-of: maintenance-operator
     app.kubernetes.io/managed-by: kustomize

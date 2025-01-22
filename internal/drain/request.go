@@ -200,7 +200,7 @@ func (dr *drainRequestImpl) createDrainHelper() *drain.Helper {
 		IgnoreAllDaemonSets: true,
 		Timeout:             time.Duration(dr.drainSpec.Spec.TimeoutSecond) * time.Second,
 		DeleteEmptyDirData:  dr.drainSpec.Spec.DeleteEmptyDir,
-		PodSelector:         dr.drainSpec.Spec.PodSelector,
+		PodSelector:         getPodSelectorForDrain(dr.drainSpec.Spec.PodSelector),
 
 		// print args
 		Out:    newLogInfoWriter(dr.log.Info),
@@ -275,4 +275,14 @@ func drainFilterFromPodEvictionFilters(f []maintenancev1.PodEvictionFiterEntry) 
 			Message: "",
 		}
 	}
+}
+
+// getPodSelectorForDrain returns the pod selector to be used for drain operation
+// it appends the default pod selector to skip the controller manager pod
+func getPodSelectorForDrain(ps string) string {
+	defaultSelector := "app.kubernetes.io/component!=maintenance-operator-controller-manager"
+	if ps == "" {
+		return defaultSelector
+	}
+	return fmt.Sprintf("%s,%s", defaultSelector, ps)
 }

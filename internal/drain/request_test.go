@@ -50,6 +50,8 @@ var _ = Describe("DrainRequest tests", func() {
 		pod = testutils.GetTestPod("test-pod-1", "node-0", map[string]string{"foo": "bar"})
 		podWithResource := testutils.GetTestPod("test-pod-2", "node-0", nil)
 		podWithResource.Spec.Containers[0].Resources.Requests = map[corev1.ResourceName]resource.Quantity{"nvidia.com/rdma-vf": {}}
+		controllerPod := testutils.GetTestPod("node-maintenance-controller", "node-0", map[string]string{
+			"app.kubernetes.io/component": "maintenance-operator-controller-manager"})
 
 		nm = testutils.GetTestNodeMaintenance("test-nm", node.Name, "test.nvidia.com", "")
 		nm.Spec.DrainSpec = &maintenancev1.DrainSpec{
@@ -58,7 +60,7 @@ var _ = Describe("DrainRequest tests", func() {
 			TimeoutSecond: 10,
 		}
 
-		fakeInterface = ks8fake.NewSimpleClientset(node, pod, podWithResource)
+		fakeInterface = ks8fake.NewSimpleClientset(node, pod, podWithResource, controllerPod)
 		// since we use fake client, we need to disable eviction for drain op to succeed.
 		// in addition, fake client doesnt take into account context so no tests that rely
 		// on ctx being cancelled cannot be tested.
@@ -105,6 +107,44 @@ var _ = Describe("DrainRequest tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(ds.State).To(Equal(drain.DrainStateSuccess))
 			Expect(ds.PodsToDelete).To(HaveLen(0))
+
+			pl, err := fakeInterface.CoreV1().Pods("default").List(testCtx, metav1.ListOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pl.Items).To(HaveLen(1))
+			// expect node-maintenance-controller pod to remain as we skip it via podSelector implicitly in drain
+			_, err = fakeInterface.CoreV1().Pods("default").Get(testCtx, "node-maintenance-controller", metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+
+	Context("PodSelector", func() {
+		BeforeEach(func() {
+			nm.Spec.DrainSpec.PodSelector = "foo=bar"
+			drainReq = drain.NewDrainRequest(testCtx, ctrllog.Log.WithName("test-drain"), fakeInterface, nm, true)
+		})
+
+		It("Returns expected status", func() {
+			ds, err := drainReq.Status()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ds.PodsToDelete).To(HaveLen(1))
+			Expect(ds.PodsToDelete).To(ConsistOf("default/test-pod-1"))
+		})
+
+		It("Drains only pods targeted by podSelector", func() {
+			drainReq.StartDrain()
+			Eventually(drainReq.State).WithTimeout(1 * time.Second).WithPolling(100 * time.Millisecond).Should(Equal(drain.DrainStateSuccess))
+			ds, err := drainReq.Status()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ds.State).To(Equal(drain.DrainStateSuccess))
+			Expect(ds.PodsToDelete).To(HaveLen(0))
+
+			pl, err := fakeInterface.CoreV1().Pods("default").List(testCtx, metav1.ListOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pl.Items).To(HaveLen(2))
+			_, err = fakeInterface.CoreV1().Pods("default").Get(testCtx, "test-pod-2", metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = fakeInterface.CoreV1().Pods("default").Get(testCtx, "node-maintenance-controller", metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 
@@ -132,7 +172,12 @@ var _ = Describe("DrainRequest tests", func() {
 			Expect(ds.State).To(Equal(drain.DrainStateSuccess))
 			Expect(ds.PodsToDelete).To(HaveLen(0))
 
+			pl, err := fakeInterface.CoreV1().Pods("default").List(testCtx, metav1.ListOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pl.Items).To(HaveLen(2))
 			_, err = fakeInterface.CoreV1().Pods("default").Get(testCtx, "test-pod-1", metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = fakeInterface.CoreV1().Pods("default").Get(testCtx, "node-maintenance-controller", metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
