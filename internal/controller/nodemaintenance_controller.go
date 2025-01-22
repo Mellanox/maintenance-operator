@@ -209,49 +209,50 @@ func (r *NodeMaintenanceReconciler) handleUninitiaizedState(ctx context.Context,
 func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) (ctrl.Result, error) {
 	reqLog.Info("Handle Scheduled NodeMaintenance")
 	var err error
-	var res ctrl.Result
 
 	if nm.GetDeletionTimestamp().IsZero() {
 		// conditionally add finalizer
 		err = k8sutils.AddFinalizer(ctx, r.Client, nm, maintenancev1.MaintenanceFinalizerName)
 		if err != nil {
 			reqLog.Error(err, "failed to set finalizer for NodeMaintenance")
-			return res, err
+			return ctrl.Result{}, err
 		}
 	} else {
 		// object is being deleted, remove finalizer if exists and return
 		reqLog.Info("NodeMaintenance object is deleting")
 
-		err = r.MCPManager.UnpauseMCP(ctx, node, nm)
-		if err != nil {
-			return res, err
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 
-		return res, r.handleFinalizerRemoval(ctx, reqLog, nm)
+		return ctrl.Result{}, r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
-	err = r.MCPManager.PauseMCP(ctx, node, nm)
-	if err != nil {
-		if errors.Is(err, openshift.ErrMachineConfigBusy) {
-			reqLog.Info("machine config pool is busy, requeue", "error", err)
-			return ctrl.Result{Requeue: true, RequeueAfter: pauseMCPRequeueTime}, nil
+	if r.MCPManager != nil {
+		if err = r.MCPManager.PauseMCP(ctx, node, nm); err != nil {
+			if errors.Is(err, openshift.ErrMachineConfigBusy) {
+				reqLog.Info("machine config pool is busy, requeue", "error", err)
+				return ctrl.Result{Requeue: true, RequeueAfter: pauseMCPRequeueTime}, nil
+			}
+			reqLog.Error(err, "failed to pause MachineConfigPool")
+			return ctrl.Result{}, fmt.Errorf("failed to pause MachineConfigPool. %w", err)
 		}
-		reqLog.Error(err, "failed to pause MachineConfigPool")
-		return res, fmt.Errorf("failed to pause MachineConfigPool. %w", err)
 	}
 
 	// Set Ready condition to ConditionReasonCordon and update object
 	err = k8sutils.SetReadyConditionReason(ctx, r.Client, nm, maintenancev1.ConditionReasonCordon)
 	if err != nil {
 		reqLog.Error(err, "failed to update status for NodeMaintenance object")
-		return res, err
+		return ctrl.Result{}, err
 	}
 
 	// emit state change event
 	r.EventRecorder.Event(
 		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonCordon)
 
-	return res, nil
+	return ctrl.Result{}, nil
 }
 
 func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLog logr.Logger, nm *maintenancev1.NodeMaintenance, node *corev1.Node) error {
@@ -269,9 +270,10 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 			}
 		}
 
-		err = r.MCPManager.UnpauseMCP(ctx, node, nm)
-		if err != nil {
-			return err
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return err
+			}
 		}
 
 		return r.handleFinalizerRemoval(ctx, reqLog, nm)
@@ -314,9 +316,10 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 			}
 		}
 
-		err = r.MCPManager.UnpauseMCP(ctx, node, nm)
-		if err != nil {
-			return res, err
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return res, err
+			}
 		}
 
 		err = r.handleFinalizerRemoval(ctx, reqLog, nm)
@@ -456,9 +459,10 @@ func (r *NodeMaintenanceReconciler) handleDrainStateDelete(ctx context.Context, 
 		}
 	}
 
-	err = r.MCPManager.UnpauseMCP(ctx, node, nm)
-	if err != nil {
-		return res, err
+	if r.MCPManager != nil {
+		if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+			return res, err
+		}
 	}
 
 	// remove finalizer if exists and return
@@ -528,9 +532,10 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 			}
 		}
 
-		err = r.MCPManager.UnpauseMCP(ctx, node, nm)
-		if err != nil {
-			return res, err
+		if r.MCPManager != nil {
+			if err = r.MCPManager.UnpauseMCP(ctx, node, nm); err != nil {
+				return res, err
+			}
 		}
 
 		// remove finalizer if exists and return

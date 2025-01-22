@@ -59,42 +59,19 @@ type MCPManager interface {
 	UnpauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error
 }
 
-// NewMCPManager returns a new MCPManager based on the cluster type
-func NewMCPManager(ocpUtils OpenshiftUtils, client client.Client) MCPManager {
-	if ocpUtils.IsOpenshift() && !ocpUtils.IsHypershift() {
-		return NewOpenshiftMcpManager(client)
-	}
-	return NewNoOpMcpManager()
+// NewMCPManager returns a new MCPManager
+func NewMCPManager(client client.Client) MCPManager {
+	return &mcpManager{client: client, mu: sync.Mutex{}}
 }
 
-// noOpMcpManager implements MCPManager with no-op methods
-type noOpMcpManager struct{}
-
-func (n *noOpMcpManager) PauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error {
-	return nil
-}
-
-func (n *noOpMcpManager) UnpauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error {
-	return nil
-}
-
-// NewNoOpMcpManager returns a no-op MCPManager. used for non-openshift clusters
-func NewNoOpMcpManager() MCPManager {
-	return &noOpMcpManager{}
-}
-
-// openshiftMcpManager implements MCPManager for openshift clusters
-type openshiftMcpManager struct {
+// mcpManager implements MCPManager for openshift clusters
+type mcpManager struct {
 	client client.Client
 	mu     sync.Mutex
 }
 
-// NewOpenshiftMcpManager returns a new MCPManager. used for openshift clusters
-func NewOpenshiftMcpManager(client client.Client) MCPManager {
-	return &openshiftMcpManager{client: client, mu: sync.Mutex{}}
-}
-
-func (o *openshiftMcpManager) PauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error {
+// PauseMCP pauses the MachineConfigPool on the given node
+func (o *mcpManager) PauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -176,7 +153,8 @@ func (o *openshiftMcpManager) PauseMCP(ctx context.Context, node *corev1.Node, n
 	return nil
 }
 
-func (o *openshiftMcpManager) UnpauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error {
+// UnpauseMCP unpauses the MachineConfigPool on the given node
+func (o *mcpManager) UnpauseMCP(ctx context.Context, node *corev1.Node, nm *maintenancev1.NodeMaintenance) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -224,7 +202,7 @@ func (o *openshiftMcpManager) UnpauseMCP(ctx context.Context, node *corev1.Node,
 }
 
 // getMCPName returns the MachineConfigPool name for the given node
-func (o *openshiftMcpManager) getMCPName(ctx context.Context, node *corev1.Node) (string, error) {
+func (o *mcpManager) getMCPName(ctx context.Context, node *corev1.Node) (string, error) {
 	// To get the MachineConfigPool for the node, we do the following:
 	// 1. get the desired MachineConfig from the node annotation
 	// 2. find the owning MachineConfigPool for the MachineConfig we found in step 1
@@ -247,7 +225,7 @@ func (o *openshiftMcpManager) getMCPName(ctx context.Context, node *corev1.Node)
 }
 
 // changeMachineConfigPoolPause pauses/unpauses the MachineConfigPool
-func (o *openshiftMcpManager) changeMachineConfigPoolPause(ctx context.Context, mcp *mcv1.MachineConfigPool, pause bool) error {
+func (o *mcpManager) changeMachineConfigPoolPause(ctx context.Context, mcp *mcv1.MachineConfigPool, pause bool) error {
 	// create merge patch to pause/unpause and annotate/un-annotate the machine config pool
 	var patch []byte
 	if pause {
@@ -265,7 +243,7 @@ func (o *openshiftMcpManager) changeMachineConfigPoolPause(ctx context.Context, 
 }
 
 // mcpUsedByOtherNodeMaintenance return true if the MCP is used by other Nodes which have NodeMaintenance associated with them that already paused MCP
-func (o *openshiftMcpManager) mcpUsedByOtherNodeMaintenance(ctx context.Context, mcp *mcv1.MachineConfigPool, nm *maintenancev1.NodeMaintenance) (bool, error) {
+func (o *mcpManager) mcpUsedByOtherNodeMaintenance(ctx context.Context, mcp *mcv1.MachineConfigPool, nm *maintenancev1.NodeMaintenance) (bool, error) {
 	// get all nodes that match the pool
 	nodesInPool := &corev1.NodeList{}
 	selector, err := metav1.LabelSelectorAsSelector(mcp.Spec.NodeSelector)

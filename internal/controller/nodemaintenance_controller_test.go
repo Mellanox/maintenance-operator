@@ -38,7 +38,6 @@ import (
 	"github.com/Mellanox/maintenance-operator/internal/cordon"
 	"github.com/Mellanox/maintenance-operator/internal/drain"
 	"github.com/Mellanox/maintenance-operator/internal/k8sutils"
-	"github.com/Mellanox/maintenance-operator/internal/openshift"
 	"github.com/Mellanox/maintenance-operator/internal/podcompletion"
 	"github.com/Mellanox/maintenance-operator/internal/testutils"
 )
@@ -82,7 +81,7 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(k8sClient),
 				DrainManager: drain.NewManager(ctrllog.Log.WithName("DrainManager"),
 					testCtx, k8sInterface),
-				MCPManager: openshift.NewNoOpMcpManager(),
+				MCPManager: nil,
 			}
 
 			// setup reconciler with manager

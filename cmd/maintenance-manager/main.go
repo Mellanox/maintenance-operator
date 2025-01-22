@@ -163,14 +163,20 @@ func main() {
 			"isOpenshift", ocpUtils.IsOpenshift(), "isHypershift", ocpUtils.IsHypershift())
 	}
 
-	if err = (&controller.NodeMaintenanceReconciler{
+	nmReconciler := &controller.NodeMaintenanceReconciler{
 		Client:                   mgrClient,
 		Scheme:                   mgr.GetScheme(),
 		CordonHandler:            cordon.NewCordonHandler(mgrClient, k8sInterface),
 		WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(mgrClient),
 		DrainManager:             drain.NewManager(ctrl.Log.WithName("DrainManager"), ctx, k8sInterface),
-		MCPManager:               openshift.NewMCPManager(ocpUtils, mgrClient),
-	}).SetupWithManager(ctx, mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
+		MCPManager:               nil,
+	}
+
+	if ocpUtils.IsOpenshift() && !ocpUtils.IsHypershift() {
+		nmReconciler.MCPManager = openshift.NewMCPManager(mgrClient)
+	}
+
+	if err = nmReconciler.SetupWithManager(ctx, mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
 		os.Exit(1)
 	}

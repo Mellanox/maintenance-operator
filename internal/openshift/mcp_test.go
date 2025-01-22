@@ -41,15 +41,6 @@ const (
 )
 
 var _ = Describe("mcp manager tests", func() {
-	Context("mcp no-op tests", func() {
-		It("should return correct values", func() {
-			testCtx := context.TODO()
-			noOpMcpManager := openshift.NewNoOpMcpManager()
-			Expect(noOpMcpManager.PauseMCP(testCtx, nil, nil)).To(Succeed())
-			Expect(noOpMcpManager.UnpauseMCP(testCtx, nil, nil)).To(Succeed())
-		})
-	})
-
 	Context("mcp manager tests", func() {
 		var testClient client.Client
 		var testCtx context.Context
@@ -75,7 +66,7 @@ var _ = Describe("mcp manager tests", func() {
 				WithObjects(node, mc, mcp, nm).
 				WithStatusSubresource(&mcv1.MachineConfigPool{}).
 				Build()
-			mcpManager = openshift.NewOpenshiftMcpManager(testClient)
+			mcpManager = openshift.NewMCPManager(testClient)
 		})
 
 		Context("PauseMCP", func() {
