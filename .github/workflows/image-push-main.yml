@@ -31,6 +31,7 @@ jobs:
         with:
           images: ghcr.io/${{ steps.repo_name.outputs.repository }}
       - name: Build and push container image
+        id: docker_build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -40,3 +41,13 @@ jobs:
             ghcr.io/${{ steps.repo_name.outputs.repository }}:latest
           labels: ${{ steps.docker_meta.outputs.labels }}
           file: ./Dockerfile
+      - name: build and push ocp bundle image
+        env:
+          IMG: ghcr.io/${{ steps.repo_name.outputs.repository }}@${{ steps.docker_build.outputs.digest }}
+          IMAGE_TAG_BASE: ghcr.io/${{ steps.repo_name.outputs.repository }}
+          VERSION: "0.1.0-dev"
+          CHANNELS: "dev"
+        run: |
+          make bundle
+          make bundle-build
+          make bundle-push
