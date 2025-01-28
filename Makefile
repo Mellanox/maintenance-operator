@@ -398,8 +398,10 @@ deploy-operator-e2e: helm kubectl kind ## Deploy operator to test cluster
 		echo "Upload test image to kind cluster"; \
 		$(KIND) load docker-image $(IMAGE_TAG_BASE):test --name $(TEST_CLUSTER_NAME); \
 		echo "deploy operator to kind cluster"; \
+		IMAGE_NAME=$$(echo $(IMAGE_TAG_BASE) | awk -F'/' '{print $$NF}'); \
+		IMAGE_REPO=$$(echo $(IMAGE_TAG_BASE) | awk -F'/' 'NF>1{NF--; print $0}' OFS='/'); \
 		$(HELM) upgrade -i --create-namespace -n maintenance-operator \
-			--set operator.image.repository=$(IMAGE_TAG_BASE) --set operator.image.tag=test --set operator.image.imagePullPolicy=Never \
+			--set operator.image.repository=$$IMAGE_REPO --set operator.image.name=$$IMAGE_NAME --set operator.image.tag=test --set operator.image.imagePullPolicy=Never \
 			maintenance-operator $(CURDIR)/deployment/maintenance-operator-chart; \
 	}
 
