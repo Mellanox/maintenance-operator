@@ -6,7 +6,7 @@ on:
 jobs:
   image-build-push:
     name: Image build and push
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Set repository as lower-case output variable
         id: repo_name
