@@ -49,7 +49,7 @@ ifeq ($(USE_IMAGE_DIGESTS), true)
 	BUNDLE_GEN_FLAGS += --use-image-digests
 endif
 
-BUNDLE_OCP_VERSIONS=v4.14-v4.17
+BUNDLE_OCP_VERSIONS=v4.14-v4.18
 
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
