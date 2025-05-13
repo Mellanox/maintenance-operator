@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	defaultMaxNodeMaintenanceTime         = 1600 * time.Second
+	defaultMaxNodeMaintenanceTime         = 3600 * time.Second
 	defaultGarbageCollectionReconcileTime = 5 * time.Minute
 	garbageCollectionReconcileTime        = defaultGarbageCollectionReconcileTime
 )
@@ -72,7 +72,7 @@ func (gco *GarbageCollectorOptions) Load() {
 	gco.maxNodeMaintenanceTime = gco.pendingMaxNodeMaintenanceTime
 }
 
-// MaxNodeMaintenanceTime returns the last loaded MaxUnavailable option
+// MaxNodeMaintenanceTime returns the last loaded MaxNodeMaintenanceTime option
 func (gco *GarbageCollectorOptions) MaxNodeMaintenanceTime() time.Duration {
 	return gco.maxNodeMaintenanceTime
 }
