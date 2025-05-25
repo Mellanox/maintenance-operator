@@ -1,4 +1,5 @@
 # Version information
+include make/license.mk
 include Makefile.version
 
 # VERSION defines the project version for the bundle.
