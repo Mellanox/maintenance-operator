@@ -55,7 +55,7 @@ go-licenses: $(BIN_DIR)
 .PHONY: third-party-licenses
 third-party-licenses: go-licenses
 	@echo "Collecting third-party licenses..."
-	@$(GO_LICENSES) save ./... --save_path=third_party_licenses --ignore=golang.org/x/sys/unix --ignore=github.com/cespare/xxhash/v2
+	@$(GO_LICENSES) save ./... --save_path=third_party_licenses --ignore=golang.org/x/sys/unix --ignore=github.com/cespare/xxhash/v2 --ignore github.com/Mellanox/maintenance-operator/api/v1alpha1
 	@echo "Generating THIRD_PARTY_NOTICES..."
 	@find third_party_licenses -type f -iname "LICENSE*" | sort --ignore-case | while read -r license; do \
 		echo "---"; \
