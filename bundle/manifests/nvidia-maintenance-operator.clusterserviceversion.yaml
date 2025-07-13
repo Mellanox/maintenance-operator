@@ -63,7 +63,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-05-06T11:22:02Z"
+    createdAt: "2025-07-13T12:33:06Z"
     description: Node maintenance in K8s cluster in a coordinated manner
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -81,11 +81,11 @@ metadata:
     provider: NVIDIA
     repository: https://github.com/Mellanox/maintenance-operator/
     support: NVIDIA
-    containerImage: ghcr.io/mellanox/maintenance-operator@sha256:951ff8b27a21109df91314f89745f061fb2dc357094da57de98e0117ee5b7359
+    containerImage: ghcr.io/mellanox/maintenance-operator@sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
   labels:
     operatorframework.io/arch.amd64: supported
     operatorframework.io/arch.arm64: supported
-  name: nvidia-maintenance-operator.v0.2.2
+  name: nvidia-maintenance-operator.v0.2.3
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -249,7 +249,7 @@ spec:
                             fieldPath: metadata.namespace
                       - name: ENABLE_WEBHOOKS
                         value: "true"
-                    image: ghcr.io/mellanox/maintenance-operator@sha256:951ff8b27a21109df91314f89745f061fb2dc357094da57de98e0117ee5b7359
+                    image: ghcr.io/mellanox/maintenance-operator@sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
                     livenessProbe:
                       httpGet:
                         path: /healthz
@@ -353,7 +353,7 @@ spec:
   provider:
     name: NVIDIA
     url: https://github.com/Mellanox/maintenance-operator/
-  version: 0.2.2
+  version: 0.2.3
   webhookdefinitions:
     - admissionReviewVersions:
         - v1
@@ -376,4 +376,4 @@ spec:
       webhookPath: /validate-maintenance-nvidia-com-v1alpha1-nodemaintenance
   relatedImages:
     - name: nvidia-maintenance-operator
-      image: ghcr.io/mellanox/maintenance-operator@sha256:951ff8b27a21109df91314f89745f061fb2dc357094da57de98e0117ee5b7359
+      image: ghcr.io/mellanox/maintenance-operator@sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
