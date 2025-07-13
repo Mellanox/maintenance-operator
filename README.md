@@ -179,3 +179,79 @@ stateDiagram-v2
   ready --> [*] : object marked for deletetion, cleanup before deletion
   requestorFailed --> [*] : RequestorFailed condition cleared by requestor or external user, object marked for deletion, cleanup before deletion
 ```
+
+## NodeMaintenance Scheduling Process
+
+The maintenance operator uses the following scheduling algorithm to choose the next set of nodes to perform maintenance on.
+
+### Step 1: Determine the number of slots available for node maintenance scheduling
+
+The number of slots available for node maintenance scheduling is determined as follows:
+
+1. Get the value of `MaintenanceOperatorConfig.Spec.MaxParallelOperations`
+   - This can be an absolute number (e.g., `5`) or a percentage of total nodes (e.g., `"10%"`)
+2. Get the current number of nodes that are under maintenance (have a `NodeMaintenance` CR which was already scheduled)
+3. The number of available slots is determined by subtracting 2. from 1.
+
+Let's mark this value as `availableSlots`.
+
+### Step 2: Determine the number of nodes that can become unavailable in the cluster
+
+The scheduler respects cluster availability limits by not exceeding `MaintenanceOperatorConfig.Spec.MaxUnavailable`.
+
+1. Calculate the absolute number of nodes that can become unavailable in the cluster based on `MaintenanceOperatorConfig.Spec.MaxUnavailable`
+   - This can be an absolute number (e.g., `3`) or a percentage of total nodes (e.g., `"20%"`)
+   - If unspecified, no limit is applied
+2. Determine the current number of unavailable nodes by summing:
+   - The number of nodes that have `NodeMaintenance` CR in progress
+   - The number of nodes that are unschedulable or not ready
+3. Determine the number of additional nodes that can become unavailable by subtracting 2. from 1.
+
+Let's mark this value as `canBecomeUnavailable`.
+
+### Step 3: Determine a list of candidate nodes for maintenance
+
+These are nodes that are targeted (via `NodeMaintenance.Spec.NodeName`) by `NodeMaintenance` objects that are **pending** (not yet scheduled).
+
+> [!NOTE]
+> A node that is already targeted by a `NodeMaintenance` object in progress will not be part of this list.
+
+### Step 4: Determine the list of candidate `NodeMaintenance` objects
+
+These are all `NodeMaintenance` objects that are targeting one of the candidate nodes from Step 3 above and are in the `Pending` state.
+
+### Step 5: Rank candidate `NodeMaintenance` objects
+
+Each candidate `NodeMaintenance` is ranked using the following criteria (ordered by priority):
+
+1. Prioritizes requestors that already have `NodeMaintenance` objects in progress
+2. Prioritizes requestors with fewer pending `NodeMaintenance` objects
+3. Prioritizes by creation time (older > newer)
+
+Higher-ranked objects are scheduled first.
+
+### Step 6: Schedule `NodeMaintenance` objects
+
+The scheduler selects `NodeMaintenance` objects for scheduling up to `availableSlots` (from Step 1), while ensuring that:
+
+- No more than `canBecomeUnavailable` additional nodes become unavailable (from Step 2)
+- If a target node is already unavailable, it doesn't count against the `canBecomeUnavailable` limit
+- Only one `NodeMaintenance` object per node is scheduled (highest-ranked wins if multiple exist)
+
+**Example**: With `availableSlots=3` and `canBecomeUnavailable=1`:
+- If 2 requests target already-unavailable nodes and 1 targets an available node → all 3 can be scheduled
+- If 3 requests target available nodes → only 1 can be scheduled
+
+## Examples:
+
+### Example 1: Parallel Operations Limit
+- Cluster: 10 nodes (all available)
+- Config: `MaxParallelOperations=2`, `MaxUnavailable=5`
+- Pending: 5 maintenance requests
+- **Result**: 2 requests scheduled (limited by MaxParallelOperations)
+
+### Example 2: Availability Limit
+- Cluster: 10 nodes (2 already unavailable)
+- Config: `MaxParallelOperations=5`, `MaxUnavailable=3`
+- Pending: 3 maintenance requests (all targeting available nodes)
+- **Result**: 1 request scheduled (limited by MaxUnavailable: 3-2=1)
