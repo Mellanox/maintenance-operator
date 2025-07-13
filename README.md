@@ -255,3 +255,33 @@ The scheduler selects `NodeMaintenance` objects for scheduling up to `availableS
 - Config: `MaxParallelOperations=5`, `MaxUnavailable=3`
 - Pending: 3 maintenance requests (all targeting available nodes)
 - **Result**: 1 request scheduled (limited by MaxUnavailable: 3-2=1)
+
+## Troubleshooting
+
+### Stop the maintenance operator from scheduling new nodes for maintenance
+
+To prevent the maintenance operator from scheduling maintenance on additional nodes that would become unavailable, set the `spec.maxUnavailable` field of MaintenanceOperatorConfig to zero.
+
+> [!NOTE]
+> This allows maintenance to continue on nodes that are already unavailable, but prevents new nodes from becoming unavailable.
+
+**Example:**
+```bash
+kubectl -n maintenance-operator patch maintenanceoperatorconfigs.maintenance.nvidia.com default --type merge --patch '{"spec": {"maxUnavailable": 0}}'
+```
+
+### Stop maintenance operator reconciling
+
+To completely stop all maintenance operator activity (including ongoing operations), scale down the maintenance operator deployment to zero:
+
+**Example:**
+```bash
+kubectl scale --replicas 0 -n maintenance-operator deployment maintenance-operator
+```
+
+To resume maintenance operator reconciliation, scale up the deployment:
+
+**Example:**
+```bash
+kubectl scale --replicas 1 -n maintenance-operator deployment maintenance-operator
+```
