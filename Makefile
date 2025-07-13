@@ -171,7 +171,7 @@ OPM = $(shell which opm)
 endif
 endif
 
-SKAFFOLD_VER := v2.12.0
+SKAFFOLD_VER := v2.16.1
 SKAFFOLD := $(abspath $(LOCALBIN)/skaffold-$(SKAFFOLD_VER))
 .PHONY: skaffold
 skaffold: $(SKAFFOLD) ## Download skaffold locally if necessary.
@@ -182,20 +182,8 @@ $(SKAFFOLD): | $(LOCALBIN)
 		chmod +x $(SKAFFOLD);\
 	}
 
-# minikube is used to set-up a local kubernetes cluster for dev work.
-MINIKUBE_VER := v1.34.0
-MINIKUBE := $(abspath $(LOCALBIN)/minikube-$(MINIKUBE_VER))
-.PHONY: minikube
-minikube: $(MINIKUBE) ## Download minikube locally if necessary.
-$(MINIKUBE): | $(LOCALBIN)
-	@{ \
-		set -e;\
-		curl -fsSL https://storage.googleapis.com/minikube/releases/$(MINIKUBE_VER)/minikube-$(TARGETOS)-$(TARGETARCH) -o $(MINIKUBE); \
-		chmod +x $(MINIKUBE);\
-	}
-
 # kind is used to set-up local kubernetes cluster for e2e tests.
-KIND_VER := v0.26.0
+KIND_VER := v0.29.0
 KIND := $(abspath $(LOCALBIN)/kind-$(KIND_VER))
 .PHONY: kind ## Download kind locally if necessary.
 kind: $(KIND)
@@ -206,7 +194,7 @@ $(KIND): | $(LOCALBIN)
 		mv $(LOCALBIN)/kind $(KIND); \
 	}
 
-KUBECTL_VER := v1.32.0
+KUBECTL_VER := v1.33.2
 KUBECTL := $(abspath $(LOCALBIN)/kubectl-$(KUBECTL_VER))
 .PHONY: kubectl ## Download kubectl locally if necessary.
 kubectl: $(KUBECTL)
@@ -469,43 +457,23 @@ chart-push-release: | $(HELM) ## push release helm chart
 
 TEST_CLUSTER_NAME = mn-op
 
-# run $(MINIKUBE) kubectl -p $(TEST_CLUSTER_NAME) -- port-forward --namespace kube-system svc/registry 5000:80
-# to expose in-cluster registry service to the host.
-SKAFFOLD_REGISTRY ?= localhost:5000
-
-.PHONY: dev-env
-dev-env: | $(MINIKUBE) $(HELM) ## Create minikube cluster for dev and tests
-	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) $(CURDIR)/hack/scripts/setup_minikube.sh
-	CLUSTER_NAME=$(TEST_CLUSTER_NAME) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
-
-.PHONY: dev-env-multinode
-dev-env-multinode: | $(MINIKUBE) $(HELM) ## Create minikube cluster for dev and tests
-	CLUSTER_NAME=$(TEST_CLUSTER_NAME) MINIKUBE_BIN=$(MINIKUBE) NUM_NODES=4 USE_MINIKUBE_DOCKER=false $(CURDIR)/hack/scripts/setup_minikube.sh
-	CLUSTER_NAME=$(TEST_CLUSTER_NAME) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
-
 .PHONY: test-env-e2e
-test-env-e2e: | $(KIND) $(HELM) $(KUBECTL) ## Create kind cluster for e2e tests and deploys maintenance operator
+test-env-e2e: | $(KIND) $(HELM) $(KUBECTL) ## Create kind cluster for development and e2e tests
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) KIND_BIN=$(KIND) KUBECTL_BIN=$(KUBECTL) $(CURDIR)/hack/scripts/setup_kind.sh
 	CLUSTER_NAME=$(TEST_CLUSTER_NAME) HELM_BIN=$(HELM) $(CURDIR)/hack/scripts/install_deps.sh
 
-.PHONY: clean-dev-env
-clean-dev-env: $(MINIKUBE) ## Teardown minikube cluster for dev and tests
-	$(MINIKUBE) delete -p $(TEST_CLUSTER_NAME)
-
 .PHONY: clean-test-env-e2e
-clean-test-env-e2e: kind ## Teardown kind cluster for e2e tests
+clean-test-env-e2e: | $(KIND) ## Teardown kind cluster for e2e tests
 	$(KIND) delete cluster --name $(TEST_CLUSTER_NAME)
 
 .PHONY: dev-operator
-dev-operator: $(MINIKUBE) $(SKAFFOLD) ## Deploy maintenance operator controller to dev cluster using skaffold
+dev-operator: | $(KIND) $(SKAFFOLD) ## Deploy maintenance operator controller to test cluster using skaffold
 	{\
-		eval $$($(MINIKUBE) -p $(TEST_CLUSTER_NAME) docker-env); \
-		$(SKAFFOLD) dev -p operator --default-repo=$(SKAFFOLD_REGISTRY) --detect-minikube=false --cleanup=false --trigger=manual; \
+		$(SKAFFOLD) dev -p operator --cleanup=true --trigger=manual; \
 	}
 
 .PHONY: dev-operator-debug
-dev-operator-debug: $(MINIKUBE) $(SKAFFOLD) ## Deploy maintenance operator controller to dev cluster using skaffold with remote debug
+dev-operator-debug: | $(KIND) $(SKAFFOLD) ## Deploy maintenance operator controller to dev cluster using skaffold with remote debug
 	{\
-		eval $$($(MINIKUBE) -p $(TEST_CLUSTER_NAME) docker-env); \
-		$(SKAFFOLD) debug -p operator --default-repo=$(SKAFFOLD_REGISTRY) --detect-minikube=false --cleanup=false; \
+		$(SKAFFOLD) debug -p operator --cleanup=true; \
 	}
