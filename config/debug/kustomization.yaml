@@ -5,6 +5,7 @@ namePrefix: maintenance-operator-
 resources:
 - ../crd
 - ../rbac
+- ../certmanager
 - ../manager
 
 patches:
