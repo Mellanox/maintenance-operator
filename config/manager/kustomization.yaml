@@ -3,6 +3,6 @@ resources:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
-- digest: sha256:cdd9ac1a953b8ad21e4ad9619aa977d52fe82f112167cb1c0bb589051936911a
+- digest: sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
   name: controller
   newName: ghcr.io/mellanox/maintenance-operator
