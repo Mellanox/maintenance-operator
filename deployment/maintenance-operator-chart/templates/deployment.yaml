@@ -10,6 +10,7 @@ metadata:
     control-plane: {{ .Release.Name }}-controller-manager
   {{- include "maintenance-operator.labels" . | nindent 4 }}
 spec:
+  priorityClassName: system-cluster-critical
   replicas: {{ .Values.operator.replicas }}
   selector:
     matchLabels:
