@@ -25,6 +25,7 @@ metadata:
     app.kubernetes.io/part-of: maintenance-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
+  priorityClassName: system-cluster-critical
   selector:
     matchLabels:
       control-plane: controller-manager
