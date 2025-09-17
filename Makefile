@@ -86,6 +86,7 @@ TARGETARCH ?= $(shell go env GOARCH)
 GO_BUILD_OPTS ?= CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH)
 GO_LDFLAGS ?= $(VERSION_LDFLAGS)
 GO_GCFLAGS ?=
+GOPROXY ?=
 
 # PKGs to test
 PKGS = $$(go list ./... | grep -v "/test*" | grep -v ".*/mocks")
@@ -333,7 +334,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} --build-arg GOPROXY="$(GOPROXY)" .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
