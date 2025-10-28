@@ -7,7 +7,7 @@ replace github.com/Mellanox/maintenance-operator/api => ./api
 require (
 	github.com/Mellanox/maintenance-operator/api v0.0.0-00010101000000-000000000000
 	github.com/go-logr/logr v1.4.3
-	github.com/onsi/ginkgo/v2 v2.26.0
+	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
 	github.com/openshift/api v0.0.0-20250102185430-d6d8306a24ec
 	github.com/pkg/errors v0.9.1
@@ -78,7 +78,6 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xlab/treeprint v1.2.0 // indirect
-	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
