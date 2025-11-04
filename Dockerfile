@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod/ GO_GCFLAGS=${GCFLAGS} make build
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM nvcr.io/nvidia/distroless/go:v3.2.0
+FROM nvcr.io/nvidia/distroless/go:v3.2.1
 WORKDIR /
 COPY --from=builder /workspace/build/manager .
 USER 65532:65532
