@@ -1,6 +1,6 @@
 module github.com/Mellanox/maintenance-operator
 
-go 1.23.0
+go 1.24.11
 
 replace github.com/Mellanox/maintenance-operator/api => ./api
 

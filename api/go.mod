@@ -1,6 +1,6 @@
 module github.com/Mellanox/maintenance-operator/api
 
-go 1.23.0
+go 1.24.11
 
 require (
 	k8s.io/api v0.32.0

@@ -225,7 +225,7 @@ $(YQ): | $(LOCALBIN)
 	@curl -fsSL -o $(YQ) https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_linux_amd64 && chmod +x $(YQ)
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.63.4
+GOLANGCI_LINT_VERSION ?= v1.64.8
 .PHONY: golangci-lint ## Download golangci-lint locally if necessary.
 golangci-lint:
 	@[ -f $(GOLANGCI_LINT) ] || { \
