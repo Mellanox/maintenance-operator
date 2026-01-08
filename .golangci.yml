@@ -96,7 +96,6 @@ linters:
     - staticcheck
     - stylecheck
     - tagalign
-    - tenv
     - thelper
     - tparallel
     - typecheck
