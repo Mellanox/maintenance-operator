@@ -45,7 +45,7 @@ OPERATOR_TAG=${GITHUB_TAG}
 
 # maintenance-operator image:
 OPERATOR_REPO=$(echo ${GITHUB_REPO_OWNER} | tr '[:upper:]' '[:lower:]') # this is used to allow to release maintenance-operator from forks
-$YQ_CMD -i ".operator.image.repository = \"ghcr.io/${OPERATOR_REPO}/maintenance-operator\"" ${HELM_VALUES}
+$YQ_CMD -i ".operator.image.repository = \"ghcr.io/${OPERATOR_REPO}\"" ${HELM_VALUES}
 
 # patch Chart.yaml in-place
 $YQ_CMD -i ".version = \"${OPERATOR_TAG#"v"}\"" ${HELM_CHART}
