@@ -94,7 +94,7 @@ jobs:
         run: make test-e2e
       - name: upload artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-test-artifacts
           path: ./artifacts
