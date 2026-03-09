@@ -32,7 +32,7 @@ jobs:
           images: ghcr.io/${{ steps.repo_name.outputs.repository }}
       - name: Build and push container image
         id: docker_build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
