@@ -113,7 +113,7 @@ func (r *NodeMaintenanceReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// get node object
 	node := &corev1.Node{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: nm.Spec.NodeName}, node)
+	err = r.Get(ctx, types.NamespacedName{Name: nm.Spec.NodeName}, node)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			reqLog.Info("node not found", "name", nm.Spec.NodeName)
@@ -482,7 +482,7 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 		// set initial status
 		podsOnNode := &corev1.PodList{}
 		selectorFields := fields.OneTermEqualSelector("spec.nodeName", nm.Spec.NodeName)
-		err = r.Client.List(ctx, podsOnNode, &client.ListOptions{FieldSelector: selectorFields})
+		err = r.List(ctx, podsOnNode, &client.ListOptions{FieldSelector: selectorFields})
 		if err != nil {
 			return fmt.Errorf("failed to list pods. %w", err)
 		}

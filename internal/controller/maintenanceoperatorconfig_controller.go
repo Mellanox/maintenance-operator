@@ -64,7 +64,7 @@ func (r *MaintenanceOperatorConfigReconciler) Reconcile(ctx context.Context, req
 	}
 
 	cfg := &maintenancev1.MaintenanceOperatorConfig{}
-	err := r.Client.Get(ctx, req.NamespacedName, cfg)
+	err := r.Get(ctx, req.NamespacedName, cfg)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
