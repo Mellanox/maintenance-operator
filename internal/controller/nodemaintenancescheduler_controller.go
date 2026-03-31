@@ -200,7 +200,7 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 			// wait for condition to be updated in cache
 			err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
 				updatedNm := &maintenancev1.NodeMaintenance{}
-				innerErr := r.Client.Get(ctx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, updatedNm)
+				innerErr := r.Get(ctx, types.NamespacedName{Namespace: nm.Namespace, Name: nm.Name}, updatedNm)
 				if innerErr != nil {
 					if k8serrors.IsNotFound(innerErr) {
 						return true, nil

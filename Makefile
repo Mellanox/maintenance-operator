@@ -224,14 +224,13 @@ yq: $(YQ) ## Download yq locally if necessary.
 $(YQ): | $(LOCALBIN)
 	@curl -fsSL -o $(YQ) https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_linux_amd64 && chmod +x $(YQ)
 
-GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+GOLANGCI_LINT_VERSION ?= v2.11.4
 .PHONY: golangci-lint ## Download golangci-lint locally if necessary.
-golangci-lint:
-	@[ -f $(GOLANGCI_LINT) ] || { \
-	set -e ;\
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell dirname $(GOLANGCI_LINT)) $(GOLANGCI_LINT_VERSION) ;\
-	}
+golangci-lint: $(GOLANGCI_LINT)
+$(GOLANGCI_LINT): | $(LOCALBIN)
+	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT)
 
 GEN_CRD_API_REFERENCE_DOCS = $(LOCALBIN)/gen-crd-api-reference-docs
 .PHONY: gen-crd-api-reference-docs ## Download gen-crd-api-reference-docs locally if necessary
@@ -295,11 +294,11 @@ test-e2e: # Run the e2e tests against a k8s instance with maintenance-operator i
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
-	$(GOLANGCI_LINT) run
+	$(GOLANGCI_LINT) run --timeout 10m
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
-	$(GOLANGCI_LINT) run --fixs
+	$(GOLANGCI_LINT) run --timeout 10m --fix
 
 .PHONY: generate-mocks
 generate-mocks: mockery ## generate mock objects
