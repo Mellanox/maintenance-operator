@@ -63,7 +63,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2025-07-13T12:33:06Z"
+    createdAt: "2026-05-12T13:59:16Z"
     description: Node maintenance in K8s cluster in a coordinated manner
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -235,8 +235,22 @@ spec:
                 annotations:
                   kubectl.kubernetes.io/default-container: manager
                 labels:
+                  app.kubernetes.io/component: maintenance-operator-controller-manager
                   control-plane: controller-manager
               spec:
+                affinity:
+                  nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                      - preference:
+                          matchExpressions:
+                            - key: node-role.kubernetes.io/master
+                              operator: Exists
+                        weight: 1
+                      - preference:
+                          matchExpressions:
+                            - key: node-role.kubernetes.io/control-plane
+                              operator: Exists
+                        weight: 1
                 containers:
                   - args:
                       - --leader-elect
@@ -283,12 +297,20 @@ spec:
                       - mountPath: /tmp/k8s-webhook-server/serving-certs
                         name: cert
                         readOnly: true
+                priorityClassName: system-cluster-critical
                 securityContext:
                   runAsNonRoot: true
                   seccompProfile:
                     type: RuntimeDefault
                 serviceAccountName: maintenance-operator-controller-manager
                 terminationGracePeriodSeconds: 10
+                tolerations:
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/master
+                    operator: Exists
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/control-plane
+                    operator: Exists
                 volumes:
                   - name: cert
                     secret:
