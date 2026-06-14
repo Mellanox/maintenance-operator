@@ -63,7 +63,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2026-05-12T13:59:16Z"
+    createdAt: "2026-06-15T13:00:33Z"
     description: Node maintenance in K8s cluster in a coordinated manner
     features.operators.openshift.io/cnf: "false"
     features.operators.openshift.io/cni: "false"
@@ -81,11 +81,11 @@ metadata:
     provider: NVIDIA
     repository: https://github.com/Mellanox/maintenance-operator/
     support: NVIDIA
-    containerImage: ghcr.io/mellanox/maintenance-operator@sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
+    containerImage: nvcr.io/nvidia/mellanox/maintenance-operator@sha256:fa285b8b3ea1b2ee8136136ef73ff92ccaf66818b3f62d90d02da556de754292
   labels:
     operatorframework.io/arch.amd64: supported
     operatorframework.io/arch.arm64: supported
-  name: nvidia-maintenance-operator.v0.2.3
+  name: nvidia-maintenance-operator.v26.4.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -263,7 +263,7 @@ spec:
                             fieldPath: metadata.namespace
                       - name: ENABLE_WEBHOOKS
                         value: "true"
-                    image: ghcr.io/mellanox/maintenance-operator@sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
+                    image: nvcr.io/nvidia/mellanox/maintenance-operator@sha256:fa285b8b3ea1b2ee8136136ef73ff92ccaf66818b3f62d90d02da556de754292
                     livenessProbe:
                       httpGet:
                         path: /healthz
@@ -375,7 +375,7 @@ spec:
   provider:
     name: NVIDIA
     url: https://github.com/Mellanox/maintenance-operator/
-  version: 0.2.3
+  version: 26.4.0
   webhookdefinitions:
     - admissionReviewVersions:
         - v1
@@ -398,4 +398,4 @@ spec:
       webhookPath: /validate-maintenance-nvidia-com-v1alpha1-nodemaintenance
   relatedImages:
     - name: nvidia-maintenance-operator
-      image: ghcr.io/mellanox/maintenance-operator@sha256:cd24d18137d5a31dd8c791e8eb52324b8e880333fb03f1fcbc08fc5e94637746
+      image: nvcr.io/nvidia/mellanox/maintenance-operator@sha256:fa285b8b3ea1b2ee8136136ef73ff92ccaf66818b3f62d90d02da556de754292
