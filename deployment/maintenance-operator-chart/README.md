@@ -11,22 +11,22 @@ Maintenance Operator Helm Chart
 | imagePullSecrets | list | `[]` | image pull secrets for the operator |
 | metricsService | object | `{"ports":[{"name":"https","port":8443,"protocol":"TCP","targetPort":"https"}],"type":"ClusterIP"}` | metrics service configurations |
 | operator.admissionController.certificates.certManager.enable | bool | `true` | use cert-manager for certificates |
-| operator.admissionController.certificates.certManager.generateSelfSigned | bool | `true` | generate self-signed certificiates with cert-manager |
+| operator.admissionController.certificates.certManager.issuerRef | object | `{}` | reference to an existing cert-manager issuer that signs the certificate. When `name` is empty a self-signed issuer is created and used. Set this to chain the admission controller certificate to a certificate authority you own. `kind` defaults to `Issuer` and `group` to `cert-manager.io` |
 | operator.admissionController.certificates.custom.enable | bool | `false` | enable custom certificates using secrets |
 | operator.admissionController.certificates.secretNames.operator | string | `"operator-webhook-cert"` | secret name containing certificates for the operator admission controller |
 | operator.admissionController.enable | bool | `true` | enable admission controller of the operator |
 | operator.affinity | object | `{"nodeAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"preference":{"matchExpressions":[{"key":"node-role.kubernetes.io/master","operator":"Exists"}]},"weight":1},{"preference":{"matchExpressions":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]},"weight":1}]}}` | node affinity for the operator |
 | operator.image.imagePullPolicy | string | `nil` | image pull policy for the operator image |
-| operator.image.repository | string | `"ghcr.io/mellanox"` | repository to use for the operator image |
 | operator.image.name | string | `"maintenance-operator"` | image name to use for the operator image |
+| operator.image.repository | string | `"ghcr.io/mellanox"` | repository to use for the operator image |
 | operator.image.tag | string | `nil` | image tag to use for the operator image |
 | operator.nodeSelector | object | `{}` | node selector for the operator |
 | operator.replicas | int | `1` | operator deployment number of repplicas |
 | operator.resources | object | `{"limits":{"cpu":"500m","memory":"128Mi"},"requests":{"cpu":"10m","memory":"64Mi"}}` | specify resource requests and limits for the operator |
 | operator.serviceAccount.annotations | object | `{}` | set annotations for the operator service account |
 | operator.tolerations | list | `[{"effect":"NoSchedule","key":"node-role.kubernetes.io/master","operator":"Exists"},{"effect":"NoSchedule","key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]` | toleration for the operator |
-| operatorConfig | object | `{"logLevel":"info","maxNodeMaintenanceTimeSeconds":null,"maxParallelOperations":null,"maxUnavailable":null}` | operator configuration values. fields here correspond to fields in MaintenanceOperatorConfig CR |
-| operatorConfig.deploy | bool | `false` | deploy operatorConfig custom resource |
+| operatorConfig | object | `{"deploy":false,"logLevel":"info","maxNodeMaintenanceTimeSeconds":null,"maxParallelOperations":null,"maxUnavailable":null}` | operator configuration values. fields here correspond to fields in MaintenanceOperatorConfig CR |
+| operatorConfig.deploy | bool | `false` | deploy operatorConfig CR with the below values |
 | operatorConfig.logLevel | string | `"info"` | log level configuration |
 | operatorConfig.maxNodeMaintenanceTimeSeconds | string | `nil` | max time for node maintenance |
 | operatorConfig.maxParallelOperations | string | `nil` | max number of parallel operations |
