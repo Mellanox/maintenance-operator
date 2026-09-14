@@ -1,8 +1,43 @@
 # maintenance-operator-chart
 
-![Version: 0.0.1](https://img.shields.io/badge/Version-0.0.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: latest](https://img.shields.io/badge/AppVersion-latest-informational?style=flat-square)
+![Version: 0.0.1](https://img.shields.io/badge/Version-0.0.1-informational?style=flat-square)  ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square)  ![AppVersion: latest](https://img.shields.io/badge/AppVersion-latest-informational?style=flat-square)
 
 Maintenance Operator Helm Chart
+
+## Resource sizing
+
+Operator memory usage is dominated by the Kubernetes **Node informer cache**, so it
+scales primarily with **cluster node count** (and node object size), not with
+NodeMaintenance request volume.
+
+| Approx. nodes | Suggested `operator.resources.limits.memory` |
+|---------------|----------------------------------------------|
+| ≤ ~150 | `256Mi` (chart default; verified stable around this size) |
+| ~250–300 | raise above `256Mi` (default may be exhausted) |
+| ~1000+ | plan for hundreds of MiB to ~1Gi+, depending on node density |
+
+Raise `operator.resources.requests.memory` alongside the limit so the scheduler
+and QoS class stay consistent.
+
+### NVIDIA Network Operator installs
+
+If this chart is deployed as a subchart of [network-operator](https://github.com/Mellanox/network-operator),
+override resources under the **subchart** key:
+
+```yaml
+maintenance-operator-chart:
+  operator:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 10m
+        memory: 192Mi
+```
+
+Do **not** confuse this with the parent chart top-level `operator.resources` —
+that setting applies to the **network-operator** controller, not maintenance-operator.
 
 ## Values
 
@@ -22,7 +57,7 @@ Maintenance Operator Helm Chart
 | operator.image.tag | string | `nil` | image tag to use for the operator image |
 | operator.nodeSelector | object | `{}` | node selector for the operator |
 | operator.replicas | int | `1` | operator deployment number of repplicas |
-| operator.resources | object | `{"limits":{"cpu":"500m","memory":"128Mi"},"requests":{"cpu":"10m","memory":"64Mi"}}` | specify resource requests and limits for the operator |
+| operator.resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"10m","memory":"192Mi"}}` | Resource requests and limits for the operator. Memory usage is dominated by the Node informer cache and therefore scales with cluster node count, not requestor workload. The default limit of 256Mi is a reasonable baseline for mid-size clusters (about 130–156Mi idle working set was measured on ~141 nodes); raise further for larger clusters (for example toward 1Gi when expecting substantial growth or GPU-dense nodes with large status payloads). When installed via NVIDIA Network Operator, override with `maintenance-operator-chart.operator.resources` — not the parent chart top-level `operator.resources`, which configures network-operator itself. |
 | operator.serviceAccount.annotations | object | `{}` | set annotations for the operator service account |
 | operator.tolerations | list | `[{"effect":"NoSchedule","key":"node-role.kubernetes.io/master","operator":"Exists"},{"effect":"NoSchedule","key":"node-role.kubernetes.io/control-plane","operator":"Exists"}]` | toleration for the operator |
 | operatorConfig | object | `{"deploy":false,"logLevel":"info","maxNodeMaintenanceTimeSeconds":null,"maxParallelOperations":null,"maxUnavailable":null}` | operator configuration values. fields here correspond to fields in MaintenanceOperatorConfig CR |
@@ -32,4 +67,3 @@ Maintenance Operator Helm Chart
 | operatorConfig.maxParallelOperations | string | `nil` | max number of parallel operations |
 | operatorConfig.maxUnavailable | string | `nil` | max number of unavailable nodes |
 | webhookService | object | `{"ports":[{"port":443,"protocol":"TCP","targetPort":9443}],"type":"ClusterIP"}` | webhook service configurations |
-

@@ -42,7 +42,10 @@ kubectl -n maintenance-operator get all
 ```
 
 > [!NOTE]
-> Refer to [helm values documentation](deployment/maintenance-operator-chart/README.md) for more information
+> Refer to [helm values documentation](deployment/maintenance-operator-chart/README.md) for more information.
+> See **Resource sizing** there: default memory is sized for mid-size clusters and
+> should be raised with node count. When installed via Network Operator, set
+> `maintenance-operator-chart.operator.resources` (not parent top-level `operator.resources`).
 
 #### Deploy last release from OCI repo
 
