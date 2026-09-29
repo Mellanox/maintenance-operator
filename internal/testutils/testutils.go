@@ -48,7 +48,7 @@ func GetTestNodes(nodePrefix string, numOfNodes int, unschedulable bool) []*core
 // GetTestNodeMaintenance used to create NodeMaintenance object for tests
 func GetTestNodeMaintenance(name, nodeName, requestorID, reason string) *maintenancev1.NodeMaintenance {
 	nm := &maintenancev1.NodeMaintenance{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: corev1.NamespaceDefault},
 		Spec: maintenancev1.NodeMaintenanceSpec{
 			RequestorID: requestorID,
 			NodeName:    nodeName,
@@ -73,7 +73,7 @@ func GetTestPod(name, nodeName string, labels map[string]string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "default",
+			Namespace: corev1.NamespaceDefault,
 			Labels:    labels,
 		},
 		Spec: corev1.PodSpec{
