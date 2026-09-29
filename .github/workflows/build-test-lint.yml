@@ -1,91 +1,34 @@
 name: "Build, Test, Lint"
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Set up Go matrix
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.25.x
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v7
-      - name: Build
-        run: make build
-  lint:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.25.x
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v7
-      - name: Lint
-        run: make lint
-  test:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.25.x
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v7
-      - name: Run tests
-        run: make unit-test
+  ci:
+    uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/go-ci-reusable.yml@main
+    with:
+      coverage-file: cover.out
+      validate-command: |
+        go mod tidy
+        git diff --exit-code
+        make generate
+        make manifests
+        git diff --exit-code
   build-image:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Build image
-        run: make docker-build
-  go-check:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.25.x
-      # if this fails, run go mod tidy
-      - name: Check if module files are consistent with code
-        run: go mod tidy && git diff --exit-code
-      # if this fails, run make generate; make manifests and commit changes
-      - name: Check if generated are up to date
-        run: make generate && make manifests && git diff --exit-code
-  coverage:
-    runs-on: ubuntu-24.04
-    needs: build
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.25.x
-      - name: Generate coverage report
-        run: make unit-test
-      - name: Upload to Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: cover.out
+    uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/image-build-reusable.yml@main
+    with:
+      build-args: GOPROXY=https://proxy.golang.org,direct
   e2e-test:
     runs-on: ubuntu-24.04
-    needs: [test, build-image]
+    needs: [ci, build-image]
     steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v7
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: 1.25.x
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v7
+          go-version-file: go.mod
       - name: prepare test k8s cluster
         run: make test-env-e2e
       - name: build and deploy operator
