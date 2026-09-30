@@ -5,8 +5,6 @@ permissions:
   contents: read
 
 jobs:
-  go-builder-images:
-    uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/go-builder-images-reusable.yml@main
   ci:
     uses: Mellanox/cloud-orchestration-reusable-workflows/.github/workflows/go-ci-reusable.yml@main
     with:
@@ -23,7 +21,7 @@ jobs:
       build-args: GOPROXY=https://proxy.golang.org,direct
   e2e-test:
     runs-on: ubuntu-24.04
-    needs: [ci, build-image, go-builder-images]
+    needs: [ci, build-image]
     steps:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v7
@@ -34,8 +32,6 @@ jobs:
       - name: prepare test k8s cluster
         run: make test-env-e2e
       - name: build and deploy operator
-        env:
-          BASE_IMAGE_GO_BUILDER: ${{ needs.go-builder-images.outputs.standard }}
         run: make deploy-operator-e2e
       - name: run e2e tests
         run: make test-e2e

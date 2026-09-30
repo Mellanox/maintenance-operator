@@ -333,7 +333,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} $(if $(BASE_IMAGE_GO_BUILDER),--build-arg BASE_IMAGE_GO_BUILDER="$(BASE_IMAGE_GO_BUILDER)") --build-arg GOPROXY="$(GOPROXY)" .
+	$(CONTAINER_TOOL) build -t ${IMG} --build-arg GOPROXY="$(GOPROXY)" .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
