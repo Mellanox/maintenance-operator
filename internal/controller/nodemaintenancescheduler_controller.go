@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -111,7 +111,7 @@ func (nmsro *NodeMaintenanceSchedulerReconcilerOptions) MaxParallelOperations() 
 type NodeMaintenanceSchedulerReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 
 	Options *NodeMaintenanceSchedulerReconcilerOptions
 	Log     logr.Logger
@@ -123,6 +123,7 @@ type NodeMaintenanceSchedulerReconciler struct {
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create
+//+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -195,7 +196,8 @@ func (r *NodeMaintenanceSchedulerReconciler) Reconcile(ctx context.Context, req 
 			}
 
 			// emit event
-			r.EventRecorder.Event(nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonScheduled)
+			r.EventRecorder.Eventf(nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+				maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonScheduled)
 
 			// wait for condition to be updated in cache
 			err = wait.PollUntilContextTimeout(ctx, 500*time.Millisecond, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
@@ -387,7 +389,7 @@ func (r *NodeMaintenanceSchedulerReconciler) SetupWithManager(mgr ctrl.Manager) 
 	close(eventChan)
 
 	// setup event recorder
-	r.EventRecorder = mgr.GetEventRecorderFor("nodemaintenancescheduler")
+	r.EventRecorder = mgr.GetEventRecorder("nodemaintenancescheduler")
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("nodemaintenancescheduler").

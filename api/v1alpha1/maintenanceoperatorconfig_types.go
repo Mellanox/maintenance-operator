@@ -81,7 +81,3 @@ type MaintenanceOperatorConfigList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []MaintenanceOperatorConfig `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&MaintenanceOperatorConfig{}, &MaintenanceOperatorConfigList{})
-}

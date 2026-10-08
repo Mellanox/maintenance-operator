@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,7 +68,7 @@ const (
 type NodeMaintenanceReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	EventRecorder record.EventRecorder
+	EventRecorder events.EventRecorder
 
 	CordonHandler            cordon.Handler
 	WaitPodCompletionHandler podcompletion.Handler
@@ -80,6 +80,7 @@ type NodeMaintenanceReconciler struct {
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=maintenance.nvidia.com,resources=nodemaintenances/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;update;patch
+//+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;update;patch
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;update;patch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;watch;list;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create;get;list;update;patch;delete
@@ -198,8 +199,9 @@ func (r *NodeMaintenanceReconciler) handleUninitiaizedState(ctx context.Context,
 	}
 
 	// emit state change event
-	r.EventRecorder.Event(
-		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonPending)
+	r.EventRecorder.Eventf(
+		nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+		maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonPending)
 
 	return nil
 }
@@ -234,7 +236,7 @@ func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, re
 		if err = r.MCPManager.PauseMCP(ctx, node, nm); err != nil {
 			if errors.Is(err, openshift.ErrMachineConfigBusy) {
 				reqLog.Info("machine config pool is busy, requeue", "error", err)
-				return ctrl.Result{Requeue: true, RequeueAfter: pauseMCPRequeueTime}, nil
+				return ctrl.Result{RequeueAfter: pauseMCPRequeueTime}, nil
 			}
 			reqLog.Error(err, "failed to pause MachineConfigPool")
 			return ctrl.Result{}, fmt.Errorf("failed to pause MachineConfigPool. %w", err)
@@ -249,8 +251,9 @@ func (r *NodeMaintenanceReconciler) handleScheduledState(ctx context.Context, re
 	}
 
 	// emit state change event
-	r.EventRecorder.Event(
-		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonCordon)
+	r.EventRecorder.Eventf(
+		nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+		maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonCordon)
 
 	return ctrl.Result{}, nil
 }
@@ -292,8 +295,9 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 		return err
 	}
 
-	r.EventRecorder.Event(
-		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonWaitForPodCompletion)
+	r.EventRecorder.Eventf(
+		nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+		maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonWaitForPodCompletion)
 
 	return nil
 }
@@ -332,7 +336,7 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 		if err == nil {
 			if len(waitingForPods) > 0 {
 				reqLog.Info("waiting for pods to finish", "pods", waitingForPods)
-				return ctrl.Result{Requeue: true, RequeueAfter: waitPodCompletionRequeueTime}, nil
+				return ctrl.Result{RequeueAfter: waitPodCompletionRequeueTime}, nil
 			}
 		} else if !errors.Is(err, podcompletion.ErrPodCompletionTimeout) {
 			reqLog.Error(err, "failed to handle waitPodCompletion")
@@ -349,8 +353,9 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 		return res, err
 	}
 
-	r.EventRecorder.Event(
-		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonDraining)
+	r.EventRecorder.Eventf(
+		nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+		maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonDraining)
 
 	return res, nil
 }
@@ -378,7 +383,7 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 				return res, err
 			}
 			_ = r.DrainManager.AddRequest(req)
-			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+			return ctrl.Result{RequeueAfter: drainReqeueTime}, nil
 		}
 
 		reqLog.Info("drain request details", "uid", req.UID(), "state", req.State())
@@ -387,7 +392,7 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 		if !reflect.DeepEqual(req.Spec().Spec, *nm.Spec.DrainSpec) {
 			reqLog.Info("drain spec has changed, removing current request and requeue")
 			r.DrainManager.RemoveRequest(req.UID())
-			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+			return ctrl.Result{RequeueAfter: drainReqeueTime}, nil
 		}
 
 		if req.State() == drain.DrainStateInProgress {
@@ -395,14 +400,14 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 			if err = r.updateDrainStatus(ctx, nm, req); err != nil {
 				return res, err
 			}
-			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+			return ctrl.Result{RequeueAfter: drainReqeueTime}, nil
 		}
 
 		// handle request in error state
 		if req.State() == drain.DrainStateError || req.State() == drain.DrainStateCanceled {
 			reqLog.Info("drain request error. removing current request and requeue", "state", req.State())
 			r.DrainManager.RemoveRequest(req.UID())
-			return ctrl.Result{Requeue: true, RequeueAfter: drainReqeueTime}, nil
+			return ctrl.Result{RequeueAfter: drainReqeueTime}, nil
 		}
 
 		// Drain completed successfully
@@ -433,8 +438,9 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 		return res, err
 	}
 
-	r.EventRecorder.Event(
-		nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonReady)
+	r.EventRecorder.Eventf(
+		nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+		maintenancev1.ConditionChangedEventType, maintenancev1.ConditionReasonReady)
 
 	return res, nil
 }
@@ -521,7 +527,7 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 
 		if len(nm.Spec.AdditionalRequestors) > 0 {
 			reqLog.Info("additional requestors for node maintenance. waiting for list to clear, requeue request", "additionalRequestors", nm.Spec.AdditionalRequestors)
-			return ctrl.Result{Requeue: true, RequeueAfter: additionalRequestorsRequeueTime}, nil
+			return ctrl.Result{RequeueAfter: additionalRequestorsRequeueTime}, nil
 		}
 
 		if nm.Spec.Cordon {
@@ -574,8 +580,10 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 	}
 
 	if conditionChanged {
-		r.EventRecorder.Event(
-			nm, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType, k8sutils.GetReadyConditionReason(nm))
+		reason := k8sutils.GetReadyConditionReason(nm)
+		r.EventRecorder.Eventf(
+			nm, nil, corev1.EventTypeNormal, maintenancev1.ConditionChangedEventType,
+			maintenancev1.ConditionChangedEventType, reason)
 	}
 
 	return res, nil
@@ -583,7 +591,7 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeMaintenanceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, log logr.Logger) error {
-	r.EventRecorder = mgr.GetEventRecorderFor("nodemaintenancereconciler")
+	r.EventRecorder = mgr.GetEventRecorder("nodemaintenancereconciler")
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
 		return []string{o.(*corev1.Pod).Spec.NodeName}
