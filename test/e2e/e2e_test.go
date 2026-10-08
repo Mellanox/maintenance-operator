@@ -43,6 +43,22 @@ var _ = Describe("E2E tests of maintenance operator", Ordered, func() {
 	var cleaupObjects []client.Object
 
 	BeforeAll(func() {
+		By("wait for the operator deployment to be ready")
+		Eventually(func() int32 {
+			dep := &appsv1.Deployment{}
+			err := k8sClient.Get(testContext, client.ObjectKey{
+				Namespace: maintenanceOperatorNamespace,
+				Name:      maintenanceOperatorNamespace,
+			}, dep)
+			if err != nil {
+				return 0
+			}
+			if dep.Status.Replicas == 0 || dep.Status.ReadyReplicas != dep.Status.Replicas {
+				return 0
+			}
+			return dep.Status.ReadyReplicas
+		}).WithTimeout(3 * time.Minute).WithPolling(2 * time.Second).Should(BeNumerically(">", 0))
+
 		By("set maintenanceOperatorConfig maxParallelOperations to 2")
 		m := &maintenancev1.MaintenanceOperatorConfig{}
 		m.Name = "default"

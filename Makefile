@@ -1,4 +1,11 @@
 # Version information
+GO_MOD_VERSION := $(shell awk '/^go / { print $$2 }' go.mod)
+GO_LOCAL_VERSION := $(patsubst go%,%,$(shell go env GOVERSION))
+# Build tools with the newer of go.mod and the local toolchain. A linter built
+# with an older Go cannot typecheck a newer standard library.
+GO_TOOLCHAIN_VERSION := $(shell printf '%s\n%s\n' "$(GO_MOD_VERSION)" "$(GO_LOCAL_VERSION)" | sort -V | tail -n 1)
+GO_TOOLCHAIN := go$(GO_TOOLCHAIN_VERSION)
+
 include make/license.mk
 include Makefile.version
 
@@ -60,7 +67,7 @@ OPERATOR_SDK_VERSION ?= v1.38.0
 TAG ?= latest
 IMG ?= $(IMAGE_TAG_BASE):$(TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.32.0
+ENVTEST_K8S_VERSION = 1.36.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -112,7 +119,7 @@ MOCKERY_VERSION ?= v2.44.2
 .PHONY: mockery
 mockery: $(MOCKERY) ## Download mockery locally if necessary.
 $(MOCKERY): | $(LOCALBIN)
-	GOBIN=$(LOCALBIN) go install github.com/vektra/mockery/v2@$(MOCKERY_VERSION)
+	GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/vektra/mockery/v2@$(MOCKERY_VERSION)
 
 .PHONY: kustomize
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
@@ -123,22 +130,22 @@ $(KUSTOMIZE): $(LOCALBIN)
 		echo "$(LOCALBIN)/kustomize version is not expected $(KUSTOMIZE_VERSION). Removing it before installing."; \
 		rm -rf $(LOCALBIN)/kustomize; \
 	fi
-	test -s $(LOCALBIN)/kustomize || GOBIN=$(LOCALBIN) go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+	test -s $(LOCALBIN)/kustomize || GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
 
 .PHONY: controller-gen
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-CONTROLLER_TOOLS_VERSION ?= v0.16.5
+CONTROLLER_TOOLS_VERSION ?= v0.21.0
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
 $(CONTROLLER_GEN): $(LOCALBIN)
 	test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
-	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+	GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
 .PHONY: envtest
 ENVTEST ?= $(LOCALBIN)/setup-envtest
-ENVTEST_VERSION ?= release-0.20
+ENVTEST_VERSION ?= release-0.24
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
 
 .PHONY: operator-sdk
 OPERATOR_SDK ?= $(LOCALBIN)/operator-sdk
@@ -191,7 +198,7 @@ kind: $(KIND)
 $(KIND): | $(LOCALBIN)
 	@{ \
 		set -e; \
-		test -s $(LOCALBIN)/$(KIND) || GOBIN=$(LOCALBIN) go install sigs.k8s.io/kind@$(KIND_VER); \
+		test -s $(LOCALBIN)/$(KIND) || GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install sigs.k8s.io/kind@$(KIND_VER); \
 		mv $(LOCALBIN)/kind $(KIND); \
 	}
 
@@ -225,25 +232,25 @@ $(YQ): | $(LOCALBIN)
 	@curl -fsSL -o $(YQ) https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_linux_amd64 && chmod +x $(YQ)
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCILINT_VERSION)
-GOLANGCILINT_VERSION ?= v2.11.4
+GOLANGCILINT_VERSION ?= v2.12.2
 .PHONY: golangci-lint ## Download golangci-lint locally if necessary.
 golangci-lint: $(GOLANGCI_LINT)
 $(GOLANGCI_LINT): | $(LOCALBIN)
-	GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCILINT_VERSION)
+	GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCILINT_VERSION)
 	mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT)
 
 GEN_CRD_API_REFERENCE_DOCS = $(LOCALBIN)/gen-crd-api-reference-docs
 .PHONY: gen-crd-api-reference-docs ## Download gen-crd-api-reference-docs locally if necessary
 gen-crd-api-reference-docs: $(GEN_CRD_API_REFERENCE_DOCS)
 $(GEN_CRD_API_REFERENCE_DOCS): | $(LOCALBIN)
-	@ GOBIN=$(LOCALBIN) go install github.com/ahmetb/gen-crd-api-reference-docs@latest
+	@ GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/ahmetb/gen-crd-api-reference-docs@latest
 
 HELM_DOCS = $(LOCALBIN)/helm-docs
 HELM_DOCS_VERSION ?= v1.14.2
 .PHONY: helm-docs ## Download helm-docs locally if necessary
 helm-docs: $(HELM_DOCS)
 $(HELM_DOCS): | $(LOCALBIN)
-	@ GOBIN=$(LOCALBIN) go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
+	@ GOBIN=$(LOCALBIN) GOTOOLCHAIN=$(GO_TOOLCHAIN) go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
 ##@ General
 
 # The help target prints out all targets with their descriptions organized
@@ -392,7 +399,9 @@ deploy-operator-e2e: helm kubectl kind ## Deploy operator to test cluster
 		$(HELM) upgrade -i --create-namespace -n maintenance-operator \
 			--set operator.image.repository=$$IMAGE_REPO --set operator.image.name=$$IMAGE_NAME --set operator.image.tag=test --set operator.image.imagePullPolicy=Never \
 			--set operatorConfig.deploy=true \
-			maintenance-operator $(CURDIR)/deployment/maintenance-operator-chart; \
+			maintenance-operator $(CURDIR)/deployment/maintenance-operator-chart && \
+		echo "wait for operator deployment"; \
+		$(KUBECTL) rollout status deployment/maintenance-operator -n maintenance-operator --timeout=180s; \
 	}
 
 .PHONY: undeploy-operator-e2e

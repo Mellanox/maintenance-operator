@@ -3,7 +3,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: maintenance-operator-system/maintenance-operator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.21.0
   creationTimestamp: null
   name: maintenanceoperatorconfigs.maintenance.nvidia.com
 spec:

@@ -113,14 +113,6 @@ spec:
             - apiGroups:
                 - ""
               resources:
-                - events
-              verbs:
-                - create
-                - patch
-                - update
-            - apiGroups:
-                - ""
-              resources:
                 - nodes
               verbs:
                 - get
@@ -148,6 +140,15 @@ spec:
                 - delete
                 - get
                 - list
+                - patch
+                - update
+            - apiGroups:
+                - ""
+                - events.k8s.io
+              resources:
+                - events
+              verbs:
+                - create
                 - patch
                 - update
             - apiGroups:
