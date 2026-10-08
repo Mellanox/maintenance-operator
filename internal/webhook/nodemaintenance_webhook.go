@@ -21,11 +21,9 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -45,26 +43,19 @@ type NodeMaintenanceWebhook struct {
 
 // SetupWebhookWithManager will setup the manager to manage the webhooks
 func (r *NodeMaintenanceWebhook) SetupWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&maintenancev1.NodeMaintenance{}).
+	return ctrl.NewWebhookManagedBy(mgr, &maintenancev1.NodeMaintenance{}).
 		WithValidator(r).
 		Complete()
 }
 
 //+kubebuilder:webhook:path=/validate-maintenance-nvidia-com-v1alpha1-nodemaintenance,mutating=false,failurePolicy=fail,sideEffects=None,groups=maintenance.nvidia.com,resources=nodemaintenances,verbs=create,versions=v1alpha1,name=vnodemaintenance.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &NodeMaintenanceWebhook{}
+var _ admission.Validator[*maintenancev1.NodeMaintenance] = &NodeMaintenanceWebhook{}
 
-// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (r *NodeMaintenanceWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type
+func (r *NodeMaintenanceWebhook) ValidateCreate(ctx context.Context, nm *maintenancev1.NodeMaintenance) (warnings admission.Warnings, err error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("validate create")
-
-	nm, ok := obj.(*maintenancev1.NodeMaintenance)
-	if !ok {
-		log.Error(nil, "failed to convert runtime object to NodeMaintenance")
-		return nil, nil
-	}
 
 	// Validate Node exists for NodeMaintenance
 	node := &corev1.Node{}
@@ -76,14 +67,14 @@ func (r *NodeMaintenanceWebhook) ValidateCreate(ctx context.Context, obj runtime
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (r *NodeMaintenanceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type
+func (r *NodeMaintenanceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *maintenancev1.NodeMaintenance) (warnings admission.Warnings, err error) {
 	// no validation for update
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (r *NodeMaintenanceWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type
+func (r *NodeMaintenanceWebhook) ValidateDelete(ctx context.Context, obj *maintenancev1.NodeMaintenance) (warnings admission.Warnings, err error) {
 	// no validation for update
 	return nil, nil
 }
