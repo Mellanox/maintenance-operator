@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	ks8fake "k8s.io/client-go/kubernetes/fake"
+	kptr "k8s.io/utils/ptr"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -57,7 +58,7 @@ var _ = Describe("DrainRequest tests", func() {
 		nm.Spec.DrainSpec = &maintenancev1.DrainSpec{
 			Force:         true,
 			PodSelector:   "",
-			TimeoutSecond: 10,
+			TimeoutSecond: kptr.To(int32(10)),
 		}
 
 		fakeInterface = ks8fake.NewSimpleClientset(node, pod, podWithResource, controllerPod)
@@ -81,7 +82,7 @@ var _ = Describe("DrainRequest tests", func() {
 		It("returns expected Spec", func() {
 			spec := drainReq.Spec()
 			Expect(spec.NodeName).To(Equal(node.Name))
-			Expect(spec.Spec.TimeoutSecond).To(Equal(int32(10)))
+			Expect(spec.Spec.TimeoutSecond).To(HaveValue(Equal(int32(10))))
 		})
 	})
 
