@@ -92,8 +92,9 @@ type NodeMaintenanceSpec struct {
 	NodeName string `json:"nodeName"`
 
 	// Cordon if set, marks node as unschedulable during maintenance operation
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=true
-	Cordon bool `json:"cordon,omitempty"`
+	Cordon bool `json:"cordon"`
 
 	// WaitForPodCompletion specifies pods via selector to wait for completion before performing drain operation
 	// if not provided, will not wait for pods to complete

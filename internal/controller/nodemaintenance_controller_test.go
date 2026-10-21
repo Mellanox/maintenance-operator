@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	kptr "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -176,6 +177,83 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			By("ConditionChanged event with Pending msg is sent for NodeMaintenance")
 			Eventually(testutils.EventsForObjFn(testCtx, k8sClient, nm.UID)).WithTimeout(10 * time.Second).
 				WithPolling(1 * time.Second).Should(Equal([]string{maintenancev1.ConditionReasonPending}))
+		})
+
+		It("Should preserve disabled cordon throughout a no-op maintenance lifecycle", func() {
+			node := nodeObjectsToCleanup[0]
+			initialNodeVersion := node.ResourceVersion
+			nm := testutils.GetTestNodeMaintenance("test-noop", node.Name, "test.nvidia.com", "")
+
+			By("Submitting an explicit false without omitting it during serialization")
+			request := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": "maintenance.nvidia.com/v1alpha1",
+				"kind":       "NodeMaintenance",
+				"metadata": map[string]interface{}{
+					"name": nm.Name, "namespace": nm.Namespace,
+				},
+				"spec": map[string]interface{}{
+					"requestorID": nm.Spec.RequestorID,
+					"nodeName":    node.Name,
+					"cordon":      false,
+				},
+			}}
+			Expect(k8sClient.Create(testCtx, request)).To(Succeed())
+			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
+			Expect(request.Object["spec"]).To(HaveKeyWithValue("cordon", false))
+
+			By("Preserving false when the controller adds the node owner reference")
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonPending))
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+			Expect(nm.Spec.Cordon).To(BeFalse())
+			Expect(k8sutils.HasOwnerRef(node, nm)).To(BeTrue())
+
+			By("Scheduling the request and allowing the controller to finish without cordon or drain")
+			Expect(k8sutils.SetReadyConditionReason(testCtx, k8sClient, nm, maintenancev1.ConditionReasonScheduled)).To(Succeed())
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonReady))
+
+			By("Preserving false through finalizer and ready-time metadata updates")
+			Eventually(func() string {
+				Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+				return nm.Annotations[ReadyTimeAnnotation]
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).ShouldNot(BeEmpty())
+			Expect(nm.Finalizers).To(ContainElement(maintenancev1.MaintenanceFinalizerName))
+			Expect(nm.Spec.Cordon).To(BeFalse())
+			Expect(nm.Spec.DrainSpec).To(BeNil())
+			Expect(nm.Annotations).NotTo(HaveKey(cordon.NodeInitialStateUnschedulableAnnot))
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).To(Succeed())
+			Expect(node.Spec.Unschedulable).To(BeFalse())
+			Expect(node.ResourceVersion).To(Equal(initialNodeVersion))
+
+			By("Deleting the request and allowing finalizer cleanup without modifying the node")
+			Expect(k8sClient.Delete(testCtx, nm)).To(Succeed())
+			Eventually(func() bool {
+				return k8serrors.IsNotFound(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm))
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(BeTrue())
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).To(Succeed())
+			Expect(node.Spec.Unschedulable).To(BeFalse())
+			Expect(node.ResourceVersion).To(Equal(initialNodeVersion))
+		})
+
+		It("Should default an omitted cordon field to true", func() {
+			nm := testutils.GetTestNodeMaintenance("test-default-cordon", "test-node-0", "test.nvidia.com", "")
+			request := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": "maintenance.nvidia.com/v1alpha1",
+				"kind":       "NodeMaintenance",
+				"metadata": map[string]interface{}{
+					"name": nm.Name, "namespace": nm.Namespace,
+				},
+				"spec": map[string]interface{}{
+					"requestorID": nm.Spec.RequestorID,
+					"nodeName":    nm.Spec.NodeName,
+				},
+			}}
+			Expect(k8sClient.Create(testCtx, request)).To(Succeed())
+			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
+			Expect(request.Object["spec"]).To(HaveKeyWithValue("cordon", true))
 		})
 
 		It("Full lifecycle of NodeMaintenance", func() {

@@ -52,6 +52,7 @@ func GetTestNodeMaintenance(name, nodeName, requestorID, reason string) *mainten
 		Spec: maintenancev1.NodeMaintenanceSpec{
 			RequestorID: requestorID,
 			NodeName:    nodeName,
+			Cordon:      true,
 		},
 	}
 	// add condition if reason was specified
