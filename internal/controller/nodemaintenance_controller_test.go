@@ -206,7 +206,7 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
 				Should(Equal(maintenancev1.ConditionReasonPending))
 			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
-			Expect(nm.Spec.Cordon).To(BeFalse())
+			Expect(nm.Spec.Cordon).To(HaveValue(BeFalse()))
 			Expect(k8sutils.HasOwnerRef(node, nm)).To(BeTrue())
 
 			By("Scheduling the request and allowing the controller to finish without cordon or drain")
@@ -221,7 +221,7 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				return nm.Annotations[ReadyTimeAnnotation]
 			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).ShouldNot(BeEmpty())
 			Expect(nm.Finalizers).To(ContainElement(maintenancev1.MaintenanceFinalizerName))
-			Expect(nm.Spec.Cordon).To(BeFalse())
+			Expect(nm.Spec.Cordon).To(HaveValue(BeFalse()))
 			Expect(nm.Spec.DrainSpec).To(BeNil())
 			Expect(nm.Annotations).NotTo(HaveKey(cordon.NodeInitialStateUnschedulableAnnot))
 			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).To(Succeed())
@@ -254,6 +254,112 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			Expect(k8sClient.Create(testCtx, request)).To(Succeed())
 			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
 			Expect(request.Object["spec"]).To(HaveKeyWithValue("cordon", true))
+		})
+
+		It("Should preserve defaults for unset Go fields", func() {
+			nm := &maintenancev1.NodeMaintenance{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-go-defaults", Namespace: "default"},
+				Spec: maintenancev1.NodeMaintenanceSpec{
+					RequestorID: "test.nvidia.com",
+					NodeName:    "test-node-0",
+					DrainSpec:   &maintenancev1.DrainSpec{},
+				},
+			}
+			Expect(k8sClient.Create(testCtx, nm)).To(Succeed())
+			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
+
+			request := &unstructured.Unstructured{}
+			request.SetAPIVersion("maintenance.nvidia.com/v1alpha1")
+			request.SetKind("NodeMaintenance")
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), request)).To(Succeed())
+			Expect(request.Object["spec"]).To(HaveKeyWithValue("cordon", true))
+			timeout, found, err := unstructured.NestedInt64(request.Object, "spec", "drainSpec", "timeoutSeconds")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(timeout).To(Equal(int64(300)))
+		})
+
+		It("Should cordon an in-memory request with unset cordon", func() {
+			nm := testutils.GetTestNodeMaintenance("test-memory-default", "test-node-0", "test.nvidia.com", "")
+			Expect(k8sClient.Create(testCtx, nm)).To(Succeed())
+			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonPending))
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+			Expect(k8sutils.AddFinalizer(testCtx, k8sClient, nm, maintenancev1.MaintenanceFinalizerName)).To(Succeed())
+
+			// Exercise the handler with a Go object that has not received API defaults.
+			nm.Spec = maintenancev1.NodeMaintenanceSpec{RequestorID: "test.nvidia.com", NodeName: "test-node-0"}
+			node := nodeObjectsToCleanup[0]
+			Expect(reconciler.handleCordonState(testCtx, ctrllog.Log, nm, node)).To(Succeed())
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).To(Succeed())
+			cordoned := node.Spec.Unschedulable
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonReady))
+			Expect(k8sClient.Delete(testCtx, nm)).To(Succeed())
+			Eventually(func() bool {
+				return k8serrors.IsNotFound(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm))
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(BeTrue())
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).To(Succeed())
+			Expect(node.Spec.Unschedulable).To(BeFalse())
+			Expect(cordoned).To(BeTrue())
+		})
+
+		It("Should preserve an unlimited drain timeout throughout the maintenance lifecycle", func() {
+			node := nodeObjectsToCleanup[0]
+			initialNodeVersion := node.ResourceVersion
+			nm := testutils.GetTestNodeMaintenance("test-unlimited-drain", node.Name, "test.nvidia.com", "")
+			request := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": "maintenance.nvidia.com/v1alpha1",
+				"kind":       "NodeMaintenance",
+				"metadata": map[string]interface{}{
+					"name": nm.Name, "namespace": nm.Namespace,
+				},
+				"spec": map[string]interface{}{
+					"requestorID": nm.Spec.RequestorID,
+					"nodeName":    node.Name,
+					"cordon":      false,
+					"drainSpec": map[string]interface{}{
+						"podSelector":    "maintenance-test=no-matching-pods",
+						"timeoutSeconds": int64(0),
+					},
+				},
+			}}
+			Expect(k8sClient.Create(testCtx, request)).To(Succeed())
+			nmObjectsToCleanup = append(nmObjectsToCleanup, nm)
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonPending))
+
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), request)).To(Succeed())
+			timeout, found, err := unstructured.NestedInt64(request.Object, "spec", "drainSpec", "timeoutSeconds")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(timeout).To(Equal(int64(0)))
+
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+			Expect(k8sutils.SetReadyConditionReason(testCtx, k8sClient, nm, maintenancev1.ConditionReasonScheduled)).To(Succeed())
+			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
+				WithTimeout(30 * time.Second).WithPolling(100 * time.Millisecond).
+				Should(Equal(maintenancev1.ConditionReasonReady))
+			Eventually(func() string {
+				Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+				return nm.Annotations[ReadyTimeAnnotation]
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).ShouldNot(BeEmpty())
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), request)).To(Succeed())
+			timeout, found, err = unstructured.NestedInt64(request.Object, "spec", "drainSpec", "timeoutSeconds")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(timeout).To(Equal(int64(0)))
+
+			Expect(k8sClient.Delete(testCtx, nm)).To(Succeed())
+			Eventually(func() bool {
+				return k8serrors.IsNotFound(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm))
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(BeTrue())
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(node), node)).To(Succeed())
+			Expect(node.ResourceVersion).To(Equal(initialNodeVersion))
 		})
 
 		It("Full lifecycle of NodeMaintenance", func() {

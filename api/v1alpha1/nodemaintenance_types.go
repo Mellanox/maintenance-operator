@@ -94,7 +94,7 @@ type NodeMaintenanceSpec struct {
 	// Cordon if set, marks node as unschedulable during maintenance operation
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=true
-	Cordon bool `json:"cordon"`
+	Cordon *bool `json:"cordon,omitempty"`
 
 	// WaitForPodCompletion specifies pods via selector to wait for completion before performing drain operation
 	// if not provided, will not wait for pods to complete
@@ -138,7 +138,7 @@ type DrainSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=300
 	// +kubebuilder:validation:Minimum:=0
-	TimeoutSecond int32 `json:"timeoutSeconds,omitempty"`
+	TimeoutSecond *int32 `json:"timeoutSeconds,omitempty"`
 
 	// DeleteEmptyDir indicates if should continue even if there are pods using emptyDir
 	// (local data that will be deleted when the node is drained)
