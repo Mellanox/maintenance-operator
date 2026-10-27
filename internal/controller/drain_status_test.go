@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
@@ -115,4 +116,25 @@ var _ = Describe("Drain error status", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.RequeueAfter).To(Equal(drainReqeueTime))
 	}, Entry("failed", drain.DrainStateError), Entry("canceled", drain.DrainStateCanceled))
+
+	It("does not enqueue a retry for a drain message-only update", func() {
+		old := nm.DeepCopy()
+		updated := nm.DeepCopy()
+		meta.FindStatusCondition(updated.Status.Conditions, maintenancev1.ConditionTypeReady).Message = "eviction timed out"
+		predicate := NewConditionChangedPredicate(ctrllog.Log)
+
+		Expect(predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated})).To(BeFalse())
+		Expect(meta.FindStatusCondition(old.Status.Conditions, maintenancev1.ConditionTypeReady).Message).To(BeEmpty())
+		Expect(meta.FindStatusCondition(updated.Status.Conditions, maintenancev1.ConditionTypeReady).Message).To(Equal("eviction timed out"))
+
+		old, updated = updated, old
+		Expect(predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated})).To(BeFalse())
+
+		meta.FindStatusCondition(updated.Status.Conditions, maintenancev1.ConditionTypeReady).ObservedGeneration++
+		Expect(predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated})).To(BeTrue())
+
+		updated = nm.DeepCopy()
+		meta.FindStatusCondition(updated.Status.Conditions, maintenancev1.ConditionTypeReady).Reason = maintenancev1.ConditionReasonReady
+		Expect(predicate.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated})).To(BeTrue())
+	})
 })

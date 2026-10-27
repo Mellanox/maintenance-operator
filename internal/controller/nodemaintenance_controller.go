@@ -629,11 +629,12 @@ func NewConditionChangedPredicate(log logr.Logger) ConditionChangedPredicate {
 }
 
 // ConditionChangedPredicate will trigger enqueue of Event for reconcile in the following cases:
-// 1. A change in NodeMaintenance Conditions
-// 2. Update to the object occurred and deletion timestamp is set
-// 3. NodeMaintenance created
-// 4. NodeMaintenance deleted
-// 5. generic event received
+//  1. A change in NodeMaintenance Conditions, except a message-only change to
+//     the Ready condition while draining (the scheduled retry handles that)
+//  2. Update to the object occurred and deletion timestamp is set
+//  3. NodeMaintenance created
+//  4. NodeMaintenance deleted
+//  5. generic event received
 type ConditionChangedPredicate struct {
 	predicate.Funcs
 
@@ -669,11 +670,23 @@ func (p ConditionChangedPredicate) Update(e event.TypedUpdateEvent[client.Object
 		return cmp.Compare(a.Type, b.Type)
 	}
 
-	// sort old and new obj.Status.Conditions so they can be compared using DeepEqual
-	slices.SortFunc(oldO.Status.Conditions, cmpByType)
-	slices.SortFunc(newO.Status.Conditions, cmpByType)
+	// Ignore drain diagnostic message changes. They are reported to users, but
+	// must not bypass the delayed retry after a failed drain request. Compare
+	// copies so the predicate does not mutate objects shared with the cache.
+	oldConditions := slices.Clone(oldO.Status.Conditions)
+	newConditions := slices.Clone(newO.Status.Conditions)
+	if oldReady := meta.FindStatusCondition(oldConditions, maintenancev1.ConditionTypeReady); oldReady != nil &&
+		oldReady.Reason == maintenancev1.ConditionReasonDraining {
+		if newReady := meta.FindStatusCondition(newConditions, maintenancev1.ConditionTypeReady); newReady != nil &&
+			newReady.Reason == maintenancev1.ConditionReasonDraining {
+			oldReady.Message = ""
+			newReady.Message = ""
+		}
+	}
+	slices.SortFunc(oldConditions, cmpByType)
+	slices.SortFunc(newConditions, cmpByType)
 
-	condChanged := !reflect.DeepEqual(oldO.Status.Conditions, newO.Status.Conditions)
+	condChanged := !reflect.DeepEqual(oldConditions, newConditions)
 	deleting := !newO.GetDeletionTimestamp().IsZero()
 	enqueue := condChanged || deleting
 
