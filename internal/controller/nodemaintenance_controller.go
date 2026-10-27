@@ -406,6 +406,12 @@ func (r *NodeMaintenanceReconciler) handleDrainState(ctx context.Context, reqLog
 		// handle request in error state
 		if req.State() == drain.DrainStateError || req.State() == drain.DrainStateCanceled {
 			reqLog.Info("drain request error. removing current request and requeue", "state", req.State())
+			if drainErr := req.LastError(); drainErr != nil {
+				if err = k8sutils.SetReadyConditionReasonMsg(ctx, r.Client, nm,
+					maintenancev1.ConditionReasonDraining, drainErr.Error()); err != nil {
+					return res, fmt.Errorf("failed to report drain error: %w", err)
+				}
+			}
 			r.DrainManager.RemoveRequest(req.UID())
 			return ctrl.Result{RequeueAfter: drainReqeueTime}, nil
 		}
@@ -481,7 +487,9 @@ func (r *NodeMaintenanceReconciler) handleDrainStateDelete(ctx context.Context, 
 func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *maintenancev1.NodeMaintenance, drainReq drain.DrainRequest) error {
 	ds, err := drainReq.Status()
 	if err != nil {
-		return fmt.Errorf("failed to update drain status. %w", err)
+		statusErr := k8sutils.SetReadyConditionReasonMsg(ctx, r.Client, nm,
+			maintenancev1.ConditionReasonDraining, err.Error())
+		return fmt.Errorf("failed to update drain status. %w", errors.Join(err, statusErr))
 	}
 
 	if nm.Status.Drain == nil {
@@ -508,6 +516,14 @@ func (r *NodeMaintenanceReconciler) updateDrainStatus(ctx context.Context, nm *m
 	}
 	nm.Status.Drain.WaitForEviction = ds.PodsToDelete
 
+	// Clear a previous drain error only after status collection succeeds.
+	meta.SetStatusCondition(&nm.Status.Conditions, metav1.Condition{
+		Type:               maintenancev1.ConditionTypeReady,
+		Status:             metav1.ConditionFalse,
+		ObservedGeneration: nm.Generation,
+		Reason:             maintenancev1.ConditionReasonDraining,
+		Message:            "",
+	})
 	err = r.Client.Status().Update(ctx, nm)
 	if err != nil {
 		return fmt.Errorf("failed to update drain status for NodeMaintenance object. %w", err)
