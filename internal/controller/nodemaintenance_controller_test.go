@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kptr "k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -66,19 +67,29 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			// create controller manager
 			By("create controller manager")
 			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-				Scheme:     k8sClient.Scheme(),
+				Scheme: k8sClient.Scheme(),
+				Client: client.Options{
+					Cache: &client.CacheOptions{DisableFor: []client.Object{&corev1.Pod{}}},
+				},
+				// Allow assertions about missing informers without creating them.
+				Cache:      cache.Options{ReaderFailOnMissingInformer: true},
 				Metrics:    metricsserver.Options{BindAddress: "0"},
 				Controller: ctrlconfig.Controller{SkipNameValidation: kptr.To(true)},
 			})
 			Expect(err).ToNot(HaveOccurred())
 
+			// Nodes are normally cached lazily; register them explicitly for the strict test cache.
+			_, err = mgr.GetCache().GetInformer(testCtx, &corev1.Node{})
+			Expect(err).ToNot(HaveOccurred())
+			mgrClient := mgr.GetClient()
+
 			// create reconciler
 			By("create NodeMaintenanceReconciler")
 			reconciler = &NodeMaintenanceReconciler{
-				Client:                   k8sClient,
+				Client:                   mgrClient,
 				Scheme:                   k8sClient.Scheme(),
-				CordonHandler:            cordon.NewCordonHandler(k8sClient, k8sInterface),
-				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(k8sClient),
+				CordonHandler:            cordon.NewCordonHandler(mgrClient, k8sInterface),
+				WaitPodCompletionHandler: podcompletion.NewPodCompletionHandler(mgrClient),
 				DrainManager: drain.NewManager(ctrllog.Log.WithName("DrainManager"),
 					testCtx, k8sInterface),
 				MCPManager: nil,
@@ -86,7 +97,7 @@ var _ = Describe("NodeMaintenance Controller", func() {
 
 			// setup reconciler with manager
 			By("setup NodeMaintenanceReconciler with controller manager")
-			Expect(reconciler.SetupWithManager(testCtx, mgr, ctrllog.Log.WithName("NodeMaintenanceReconciler"))).
+			Expect(reconciler.SetupWithManager(mgr, ctrllog.Log.WithName("NodeMaintenanceReconciler"))).
 				ToNot(HaveOccurred())
 
 			// start manager
@@ -106,6 +117,10 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				By("Shut down controller manager")
 				cancel()
 				wg.Wait()
+
+				By("Pod reads and controller setup did not create a Pod informer")
+				Expect(mgr.GetCache().List(testCtx, &corev1.PodList{})).
+					To(BeAssignableToTypeOf(&cache.ErrResourceNotCached{}))
 			})
 		})
 
@@ -199,6 +214,16 @@ var _ = Describe("NodeMaintenance Controller", func() {
 			Expect(k8sClient.Create(testCtx, podForDrain)).ToNot(HaveOccurred())
 			podObjectsToCleanup = append(podObjectsToCleanup, podForDrain)
 
+			By("Create pods excluded by the node or label selectors")
+			for _, pod := range []*corev1.Pod{
+				testutils.GetTestPod("other-node", "other-node", map[string]string{"for": "wait-completion"}),
+				testutils.GetTestPod("unscheduled", "", map[string]string{"for": "wait-completion"}),
+				testutils.GetTestPod("other-label", "test-node-0", map[string]string{"for": "other"}),
+			} {
+				Expect(k8sClient.Create(testCtx, pod)).To(Succeed())
+				podObjectsToCleanup = append(podObjectsToCleanup, pod)
+			}
+
 			By("Eventually NodeMaintenance condition is set to Pending")
 			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
 				WithTimeout(10 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonPending))
@@ -216,6 +241,10 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Within(time.Second).WithPolling(100 * time.Millisecond).
 				Should(Equal(maintenancev1.ConditionReasonWaitForPodCompletion))
 
+			By("Only the matching pod on the maintenance node is waited on")
+			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+			Expect(nm.Status.WaitForCompletion).To(Equal([]string{"default/test-pod"}))
+
 			By("Setting Additional requestor for node maintenance")
 			Expect(k8sClient.Get(testCtx, types.NamespacedName{Namespace: "default", Name: "test-nm"}, nm)).ToNot(HaveOccurred())
 			nm.Spec.AdditionalRequestors = append(nm.Spec.AdditionalRequestors, "another-requestor.nvidia.com")
@@ -229,6 +258,13 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				ToNot(HaveOccurred())
 			Eventually(testutils.GetReadyConditionReasonForFn(testCtx, k8sClient, client.ObjectKeyFromObject(nm))).
 				WithTimeout(20 * time.Second).WithPolling(1 * time.Second).Should(Equal(maintenancev1.ConditionReasonDraining))
+
+			By("Drain status counts only pods on the maintenance node")
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+				g.Expect(nm.Status.Drain).ToNot(BeNil())
+				g.Expect(nm.Status.Drain.TotalPods).To(Equal(int32(2)))
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 
 			By("Eventually NodeMaintenance is Ready")
 			// NOTE(adrianc): as above comment, we need to "help" drain to delete the targeted pod since api server will not
