@@ -242,8 +242,10 @@ var _ = Describe("NodeMaintenance Controller", func() {
 				Should(Equal(maintenancev1.ConditionReasonWaitForPodCompletion))
 
 			By("Only the matching pod on the maintenance node is waited on")
-			Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
-			Expect(nm.Status.WaitForCompletion).To(Equal([]string{"default/test-pod"}))
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(testCtx, client.ObjectKeyFromObject(nm), nm)).To(Succeed())
+				g.Expect(nm.Status.WaitForCompletion).To(Equal([]string{"default/test-pod"}))
+			}).WithTimeout(10 * time.Second).WithPolling(100 * time.Millisecond).Should(Succeed())
 
 			By("Setting Additional requestor for node maintenance")
 			Expect(k8sClient.Get(testCtx, types.NamespacedName{Namespace: "default", Name: "test-nm"}, nm)).ToNot(HaveOccurred())
