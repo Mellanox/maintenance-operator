@@ -590,14 +590,8 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *NodeMaintenanceReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, log logr.Logger) error {
+func (r *NodeMaintenanceReconciler) SetupWithManager(mgr ctrl.Manager, log logr.Logger) error {
 	r.EventRecorder = mgr.GetEventRecorder("nodemaintenancereconciler")
-
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
-		return []string{o.(*corev1.Pod).Spec.NodeName}
-	}); err != nil {
-		return err
-	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&maintenancev1.NodeMaintenance{}, builder.WithPredicates(NewConditionChangedPredicate(log))).
