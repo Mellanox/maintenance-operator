@@ -28,6 +28,7 @@ import (
 	k8serror "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/kubectl/pkg/drain"
+	"k8s.io/utils/ptr"
 
 	maintenancev1 "github.com/Mellanox/maintenance-operator/api/v1alpha1"
 	"github.com/Mellanox/maintenance-operator/internal/log"
@@ -198,7 +199,7 @@ func (dr *drainRequestImpl) createDrainHelper() *drain.Helper {
 		Force:               dr.drainSpec.Spec.Force,
 		GracePeriodSeconds:  -1,
 		IgnoreAllDaemonSets: true,
-		Timeout:             time.Duration(dr.drainSpec.Spec.TimeoutSecond) * time.Second,
+		Timeout:             time.Duration(ptr.Deref(dr.drainSpec.Spec.TimeoutSecond, 300)) * time.Second,
 		DeleteEmptyDirData:  dr.drainSpec.Spec.DeleteEmptyDir,
 		PodSelector:         getPodSelectorForDrain(dr.drainSpec.Spec.PodSelector),
 

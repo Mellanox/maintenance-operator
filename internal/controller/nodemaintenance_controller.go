@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -265,7 +266,7 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 	if !nm.GetDeletionTimestamp().IsZero() {
 		reqLog.Info("NodeMaintenance object is deleting")
 
-		if nm.Spec.Cordon {
+		if ptr.Deref(nm.Spec.Cordon, true) {
 			reqLog.Info("handle uncordon of node, ", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
 			if err != nil {
@@ -282,7 +283,7 @@ func (r *NodeMaintenanceReconciler) handleCordonState(ctx context.Context, reqLo
 		return r.handleFinalizerRemoval(ctx, reqLog, nm)
 	}
 
-	if nm.Spec.Cordon {
+	if ptr.Deref(nm.Spec.Cordon, true) {
 		err = r.CordonHandler.HandleCordon(ctx, reqLog, nm, node)
 		if err != nil {
 			return err
@@ -312,7 +313,7 @@ func (r *NodeMaintenanceReconciler) handleWaitPodCompletionState(ctx context.Con
 		// object is being deleted, handle cleanup.
 		reqLog.Info("NodeMaintenance object is deleting")
 
-		if nm.Spec.Cordon {
+		if ptr.Deref(nm.Spec.Cordon, true) {
 			reqLog.Info("handle uncordon of node, ", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
 			if err != nil {
@@ -457,7 +458,7 @@ func (r *NodeMaintenanceReconciler) handleDrainStateDelete(ctx context.Context, 
 	}
 	r.DrainManager.RemoveRequest(drainReqUID)
 
-	if nm.Spec.Cordon {
+	if ptr.Deref(nm.Spec.Cordon, true) {
 		reqLog.Info("handle uncordon of node, ", "node", node.Name)
 		err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
 		if err != nil {
@@ -530,7 +531,7 @@ func (r *NodeMaintenanceReconciler) handleTerminalState(ctx context.Context, req
 			return ctrl.Result{RequeueAfter: additionalRequestorsRequeueTime}, nil
 		}
 
-		if nm.Spec.Cordon {
+		if ptr.Deref(nm.Spec.Cordon, true) {
 			reqLog.Info("handle uncordon of node", "node", node.Name)
 			err = r.CordonHandler.HandleUnCordon(ctx, reqLog, nm, node)
 			if err != nil {
