@@ -56,7 +56,10 @@ func (ds *defaultScheduler) Schedule(clusterState *ClusterState, schedulerCtx *S
 	var recommended []*maintenancev1.NodeMaintenance
 	canBecomeUnavail := schedulerCtx.CanBecomeUnavailable
 
-	for i := range utils.Min(schedulerCtx.AvailableSlots, len(compacted)) {
+	for i := range compacted {
+		if len(recommended) >= schedulerCtx.AvailableSlots {
+			break
+		}
 		node := clusterState.Nodes[compacted[i].Spec.NodeName]
 		nodeAvailable := !k8sutils.IsNodeUnschedulable(node) && k8sutils.IsNodeReady(node)
 

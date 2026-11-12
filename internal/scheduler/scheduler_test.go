@@ -119,6 +119,25 @@ var _ = Describe("Scheduler tests", func() {
 			mustHave := sets.New("test-nm-3")
 			validateRecommentation(recommend, 2, schedulerCtx.CandidateNodes, &mustHave)
 		})
+
+		It("Schedules successfully with unavailable constrains with lowest ranked candidate node already unavailable", func() {
+			schedulerCtx.CanBecomeUnavailable = 1
+			clusterState.Nodes["node-4"].Spec.Unschedulable = true
+			recommend := sched.Schedule(clusterState, schedulerCtx)
+			By("expecting to have 2 node maintenance recommended")
+			mustHave := sets.New("test-nm-4")
+			validateRecommentation(recommend, 2, schedulerCtx.CandidateNodes, &mustHave)
+		})
+
+		It("Schedules node maintenance for unavailable node when no more nodes can become unavailable", func() {
+			schedulerCtx.AvailableSlots = 1
+			schedulerCtx.CanBecomeUnavailable = 0
+			clusterState.Nodes["node-4"].Spec.Unschedulable = true
+			recommend := sched.Schedule(clusterState, schedulerCtx)
+			By("expecting to have 1 node maintenance recommended")
+			mustHave := sets.New("test-nm-4")
+			validateRecommentation(recommend, 1, schedulerCtx.CandidateNodes, &mustHave)
+		})
 	})
 })
 
