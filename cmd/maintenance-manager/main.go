@@ -29,10 +29,12 @@ import (
 
 	ocpconfigv1 "github.com/openshift/api/config/v1"
 	mcv1 "github.com/openshift/api/machineconfiguration/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -117,6 +119,12 @@ func main() {
 	restConfig := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme: scheme,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				// Pod reads are node-scoped; avoid caching every Pod in the cluster.
+				DisableFor: []client.Object{&corev1.Pod{}},
+			},
+		},
 		Metrics: metricsserver.Options{
 			BindAddress:   metricsAddr,
 			SecureServing: secureMetrics,
@@ -176,7 +184,7 @@ func main() {
 		nmReconciler.MCPManager = openshift.NewMCPManager(mgrClient)
 	}
 
-	if err = nmReconciler.SetupWithManager(ctx, mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
+	if err = nmReconciler.SetupWithManager(mgr, ctrl.Log.WithName("NodeMaintenanceReconciler")); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeMaintenance")
 		os.Exit(1)
 	}
